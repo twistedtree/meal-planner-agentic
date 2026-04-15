@@ -1,0 +1,85 @@
+# agents/recipe_finder.py
+import json
+import re
+from datetime import datetime
+from anthropic import Anthropic
+from models import Recipe, Profile
+from agents.prompts import RECIPE_FINDER_SYSTEM_PROMPT
+
+MODEL = "claude-sonnet-4-6"
+
+
+def _slugify(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug[:60] or "untitled"
+
+
+def _household_context(profile: Profile | None) -> str:
+    if profile is None:
+        return "(no household profile set yet)"
+    dislikes = ", ".join(profile.household_dislikes) or "none"
+    rules = "; ".join(profile.dietary_rules) or "none"
+    cuisines = ", ".join(profile.preferred_cuisines) or "no preference"
+    return (
+        f"Household dislikes: {dislikes}\n"
+        f"Dietary rules: {rules}\n"
+        f"Preferred cuisines: {cuisines}\n"
+    )
+
+
+def find_new_recipes(query: str, count: int, profile: Profile | None) -> list[Recipe]:
+    """Run an isolated Claude session with web_search, return structured recipes."""
+    client = Anthropic()
+    system_prompt = RECIPE_FINDER_SYSTEM_PROMPT.format(
+        query=query,
+        count=count,
+        household_context=_household_context(profile),
+    )
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        system=system_prompt,
+        tools=[{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5,
+        }],
+        messages=[{
+            "role": "user",
+            "content": f"Find {count} recipes for: {query}",
+        }],
+    )
+    # Extract the final assistant text — the last text block after web_search turns
+    text_parts: list[str] = []
+    for block in response.content:
+        if block.type == "text":
+            text_parts.append(block.text)
+    raw = "\n".join(text_parts).strip()
+
+    # Pull the JSON array out of the response
+    match = re.search(r"\[\s*\{.*?\}\s*\]", raw, re.DOTALL)
+    if not match:
+        return []
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+
+    out: list[Recipe] = []
+    now = datetime.now()
+    for item in parsed:
+        try:
+            out.append(Recipe(
+                id=_slugify(item.get("title", "")),
+                title=item["title"],
+                cuisine=item.get("cuisine", "unknown"),
+                main_protein=item.get("main_protein", "unknown"),
+                key_ingredients=item.get("key_ingredients", []),
+                tags=item.get("tags", []),
+                cook_time_min=int(item.get("cook_time_min", 30)),
+                source_url=item.get("source_url"),
+                added_at=now,
+            ))
+        except (KeyError, ValueError):
+            continue
+    return out

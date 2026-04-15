@@ -5,19 +5,22 @@ from models import Recipe
 SUMMARY_FIELDS = ("id", "title", "cuisine", "main_protein", "avg_rating",
                   "times_cooked", "tags", "cook_time_min")
 
+FILTERABLE_FIELDS = frozenset({
+    "id", "cuisine", "main_protein", "cook_time_min", "times_cooked"
+})
+
 
 def recipe_summary(r: Recipe) -> dict[str, Any]:
     """Compact representation — cheap to list even with hundreds of recipes."""
-    return {
-        "id": r.id,
-        "title": r.title,
-        "cuisine": r.cuisine,
-        "main_protein": r.main_protein,
-        "avg_rating": r.avg_rating,
-        "times_cooked": r.times_cooked,
-        "tags": r.tags,
-        "cook_time_min": r.cook_time_min,
-    }
+    return {k: getattr(r, k) for k in SUMMARY_FIELDS}
+
+
+def _apply_filters(r: Recipe, filters: dict[str, Any]) -> bool:
+    """Exact-match filter check. Raises ValueError for unknown keys."""
+    unknown = set(filters) - FILTERABLE_FIELDS
+    if unknown:
+        raise ValueError(f"Unknown filter fields: {sorted(unknown)}")
+    return all(getattr(r, k, None) == v for k, v in filters.items())
 
 
 def list_recipes(
@@ -26,11 +29,7 @@ def list_recipes(
 ) -> list[dict[str, Any]]:
     """Return compact summaries, optionally filtered by exact-match fields."""
     filters = filters or {}
-    out = []
-    for r in recipes:
-        if all(getattr(r, k, None) == v for k, v in filters.items()):
-            out.append(recipe_summary(r))
-    return out
+    return [recipe_summary(r) for r in recipes if _apply_filters(r, filters)]
 
 
 def _score_match(r: Recipe, query: str) -> int:
@@ -57,10 +56,7 @@ def search_recipes(
     """Match query against title/tags/ingredients/cuisine. Rank by (match count,
     avg_rating desc, times_cooked desc). Apply exact-match filters first."""
     filters = filters or {}
-    candidates = [
-        r for r in recipes
-        if all(getattr(r, k, None) == v for k, v in filters.items())
-    ]
+    candidates = [r for r in recipes if _apply_filters(r, filters)]
     scored: list[tuple[int, float, int, Recipe]] = []
     for r in candidates:
         s = _score_match(r, query)
@@ -72,6 +68,5 @@ def search_recipes(
             r.times_cooked,
             r,
         ))
-    # Higher score first, then higher rating, then more times cooked
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
     return [recipe_summary(r) for _, _, _, r in scored[:top_k]]

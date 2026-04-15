@@ -84,3 +84,9 @@ def test_search_unrated_last():
 def test_search_respects_top_k():
     out = search_recipes(RECIPES, query="chicken", top_k=1)
     assert len(out) == 1
+
+
+def test_list_recipes_rejects_unknown_filter_key():
+    import pytest
+    with pytest.raises(ValueError):
+        list_recipes(RECIPES, filters={"main_protien": "chicken"})  # typo

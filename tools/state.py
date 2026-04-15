@@ -1,7 +1,7 @@
 # tools/state.py
 from datetime import datetime
 from models import State, MealPlanSlot, Rating
-from storage import load_json, save_json
+from storage import load_json, save_json, STATE_DIR
 
 
 def _now() -> datetime:
@@ -52,21 +52,20 @@ def record_rating(recipe_title: str, rater: str, rating: str,
     return s
 
 
-_SNAPSHOT: State | None = None
-
-
 def snapshot_for_undo() -> None:
-    """Capture current state for a one-step undo. Called before any mutation."""
-    global _SNAPSHOT
-    _SNAPSHOT = read_state().model_copy(deep=True)
+    """Capture current state for a one-step undo. Called at turn start."""
+    current = read_state()
+    snapshot_path = STATE_DIR / ".snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(current.model_dump_json(indent=2), encoding="utf-8")
 
 
 def restore_snapshot() -> State | None:
     """Restore the most recent snapshot. Returns the restored state or None."""
-    global _SNAPSHOT
-    if _SNAPSHOT is None:
+    snapshot_path = STATE_DIR / ".snapshot.json"
+    if not snapshot_path.exists():
         return None
-    save_json("state.json", _SNAPSHOT)
-    restored = _SNAPSHOT
-    _SNAPSHOT = None
+    restored = State.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+    save_json("state.json", restored)
+    snapshot_path.unlink()
     return restored

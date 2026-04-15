@@ -25,6 +25,7 @@ def _slot(day, title, ingredients, protein_hint=None):
         ings.insert(0, protein_hint)
     return MealPlanSlot(
         day=day, recipe_title=title, recipe_id=None,
+        main_protein=protein_hint or "unknown",
         key_ingredients=ings, rationale="test",
     )
 

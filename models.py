@@ -44,6 +44,7 @@ class MealPlanSlot(BaseModel):
     day: Literal["Mon", "Tue", "Wed", "Thu", "Fri"]
     recipe_title: str
     recipe_id: str | None = None
+    main_protein: str                       # NEW
     key_ingredients: list[str]
     rationale: str
 

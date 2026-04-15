@@ -41,6 +41,7 @@ def test_meal_plan_slot_optional_recipe_id():
         day="Mon",
         recipe_title="Pantry pasta",
         recipe_id=None,
+        main_protein="none",
         key_ingredients=["pasta", "tomato", "basil"],
         rationale="Uses what's in the pantry",
     )

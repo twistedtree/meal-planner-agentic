@@ -32,7 +32,7 @@ def _render_plan_table():
     rows = [{
         "Day": slot.day,
         "Recipe": slot.recipe_title,
-        "Protein": slot.key_ingredients[0] if slot.key_ingredients else "",
+        "Protein": slot.main_protein,
         "Key ingredients": ", ".join(slot.key_ingredients),
         "Why": slot.rationale,
     } for slot in s.meal_plan]

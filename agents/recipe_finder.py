@@ -35,25 +35,37 @@ def find_new_recipes(query: str, count: int, profile: Profile | None) -> list[Re
         count=count,
         household_context=_household_context(profile),
     )
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        system=system_prompt,
-        tools=[{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": 5,
-        }],
-        messages=[{
-            "role": "user",
-            "content": f"Find {count} recipes for: {query}",
-        }],
-    )
-    # Extract the final assistant text — the last text block after web_search turns
+
+    messages: list[dict] = [{
+        "role": "user",
+        "content": f"Find {count} recipes for: {query}",
+    }]
+
     text_parts: list[str] = []
-    for block in response.content:
-        if block.type == "text":
-            text_parts.append(block.text)
+    for _ in range(5):  # at most 5 resumption rounds
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            system=system_prompt,
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5,
+            }],
+            messages=messages,
+        )
+        # Collect text from this response
+        for block in response.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+
+        # End or pause?
+        if response.stop_reason == "pause_turn":
+            # Anthropic says: resume by sending the model's content back as-is
+            messages.append({"role": "assistant", "content": response.content})
+            continue
+        break
+
     raw = "\n".join(text_parts).strip()
 
     # Pull the JSON array out of the response

@@ -70,3 +70,50 @@ def search_recipes(
         ))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
     return [recipe_summary(r) for _, _, _, r in scored[:top_k]]
+
+
+# --- Persistence + subagent wiring ---
+
+from datetime import datetime
+from storage import load_json_list, save_json_list
+from models import Profile
+
+
+def load_all_recipes() -> list[Recipe]:
+    """Load every saved recipe from recipes.json (returns [] if missing)."""
+    return load_json_list("recipes.json", Recipe)
+
+
+def save_all_recipes(recipes: list[Recipe]) -> None:
+    save_json_list("recipes.json", recipes)
+
+
+def get_recipe(recipe_id: str) -> dict | None:
+    """Return the full recipe as a dict, or None if not found."""
+    for r in load_all_recipes():
+        if r.id == recipe_id:
+            return r.model_dump(mode="json")
+    return None
+
+
+def append_recipes(new: list[Recipe]) -> list[Recipe]:
+    """Append new recipes, skipping duplicates by id. Returns the newly added."""
+    existing = load_all_recipes()
+    existing_ids = {r.id for r in existing}
+    added: list[Recipe] = []
+    for r in new:
+        if r.id in existing_ids:
+            continue
+        existing.append(r)
+        added.append(r)
+        existing_ids.add(r.id)
+    save_all_recipes(existing)
+    return added
+
+
+def find_new_recipes_tool(query: str, count: int, profile: Profile | None) -> list[dict]:
+    """Tool-facing: spawn subagent, append results to recipes.json, return summaries."""
+    from agents.recipe_finder import find_new_recipes  # local import avoids cycle
+    found = find_new_recipes(query, count, profile)
+    added = append_recipes(found)
+    return [recipe_summary(r) for r in added]

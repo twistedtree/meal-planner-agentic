@@ -13,7 +13,6 @@ from tools.recipes import (
     find_new_recipes_tool,
 )
 from tools.validate import validate_plan
-from models import MealPlanSlot
 
 MODEL = "claude-sonnet-4-6"
 MAX_TOOL_ITERATIONS = 15
@@ -176,20 +175,16 @@ def _dispatch(name: str, args: dict) -> str:
             p = read_profile()
             return json.dumps(p.model_dump(mode="json") if p else None)
         if name == "update_profile":
-            snapshot_for_undo()
             return json.dumps(update_profile(args).model_dump(mode="json"))
         if name == "read_state":
             return json.dumps(read_state().model_dump(mode="json"))
         if name == "update_plan":
-            snapshot_for_undo()
             return json.dumps(update_plan(args["slots"]).model_dump(mode="json"))
         if name == "update_pantry":
-            snapshot_for_undo()
             return json.dumps(update_pantry(
                 add=args.get("add", []), remove=args.get("remove", [])
             ).model_dump(mode="json"))
         if name == "record_rating":
-            snapshot_for_undo()
             return json.dumps(record_rating(
                 recipe_title=args["recipe_title"],
                 rater=args["rater"],
@@ -268,6 +263,7 @@ def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
 
     history is a list of {role, content} dicts in the Anthropic Messages API shape.
     """
+    snapshot_for_undo()  # capture state at turn entry — undo restores to here
     client = Anthropic()
     messages = history + [{"role": "user", "content": user_message}]
     system = _build_system_prompt()

@@ -99,3 +99,24 @@ def test_produce_keywords_basic():
     assert "broccoli" in PRODUCE_KEYWORDS
     assert "carrot" in PRODUCE_KEYWORDS
     assert "tomato" in PRODUCE_KEYWORDS
+
+
+def test_dislike_fires_once_per_pair_even_with_multiple_matching_ingredients():
+    profile = _profile(household_dislikes=["onion"])
+    plan = [_slot("Mon", "Onion soup", ["onion", "spring onion", "broccoli"])]
+    warnings = validate_plan(plan, profile, ratings=[])
+    dislike_warnings = [w for w in warnings if "household dislike: onion" in w]
+    assert len(dislike_warnings) == 1
+
+
+def test_never_again_match_is_case_insensitive():
+    profile = _profile()
+    ratings = [
+        Rating(recipe_title="liver pie", rater="A", rating="never_again",
+               cooked_at=datetime(2026, 3, 1)),
+        Rating(recipe_title="Liver Pie", rater="B", rating="never_again",
+               cooked_at=datetime(2026, 3, 1)),
+    ]
+    plan = [_slot("Mon", "LIVER PIE", ["liver", "onion"])]
+    warnings = validate_plan(plan, profile, ratings=ratings)
+    assert any("never" in w.lower() for w in warnings)

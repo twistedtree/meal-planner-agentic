@@ -55,29 +55,34 @@ def validate_plan(
                 f"{slot.day} ({slot.recipe_title}) has no vegetable listed."
             )
 
-    # Rule 3: no household dislike
+    # Rule 3: no household dislike (one warning per slot+dislike pair)
     dislikes = {d.lower() for d in profile.household_dislikes}
     for slot in plan:
+        fired: set[str] = set()
         for ing in slot.key_ingredients:
+            ing_lower = ing.lower()
             for d in dislikes:
-                if d in ing.lower():
+                if d in fired:
+                    continue
+                if d in ing_lower:
                     warnings.append(
                         f"{slot.day} ({slot.recipe_title}) violates household dislike: {d}"
                     )
-                    break
+                    fired.add(d)
 
-    # Rule 4: no recipe both adults rated never_again
+    # Rule 4: no recipe both adults rated never_again (case-insensitive match)
     adult_names = {m.name for m in profile.members if m.is_adult}
     never_again_by_recipe: dict[str, set[str]] = {}
     for r in ratings:
         if r.rating == "never_again" and r.rater in adult_names:
-            never_again_by_recipe.setdefault(r.recipe_title, set()).add(r.rater)
+            key = r.recipe_title.lower().strip()
+            never_again_by_recipe.setdefault(key, set()).add(r.rater)
     mutual_never = {
         title for title, raters in never_again_by_recipe.items()
         if raters >= adult_names and len(adult_names) > 0
     }
     for slot in plan:
-        if slot.recipe_title in mutual_never:
+        if slot.recipe_title.lower().strip() in mutual_never:
             warnings.append(
                 f"{slot.day} ({slot.recipe_title}) was rated never_again by both adults."
             )

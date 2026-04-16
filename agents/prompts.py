@@ -30,6 +30,8 @@ SOFT PREFERENCES (use judgement):
 - Favor pantry-aligned recipes (ingredients already in stock)
 - Include 1-2 recipes requiring shopping - keep it interesting
 - Avoid repeating a recipe cooked in the last 7 days
+- Do NOT repeat any recipe from last week's plan (shown in state summary under "Last week").
+  Aim for variety across consecutive weeks — rotate proteins and cuisines.
 
 INTERACTION RULES:
 - Always confirm before calling update_plan / update_pantry / update_profile

@@ -60,10 +60,11 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "update_plan",
-        "description": "Replace the meal_plan wholesale. Provide 5 slots (Mon-Fri).",
+        "description": "Replace the meal_plan wholesale. Provide 5 slots (Mon-Fri). Always include week_of (the Monday of the planned week, ISO format YYYY-MM-DD).",
         "input_schema": {
             "type": "object",
             "properties": {
+                "week_of": {"type": "string", "description": "Monday of the planned week (YYYY-MM-DD)"},
                 "slots": {
                     "type": "array",
                     "items": {
@@ -80,7 +81,7 @@ TOOL_DEFINITIONS = [
                     },
                 },
             },
-            "required": ["slots"],
+            "required": ["slots", "week_of"],
         },
     },
     {
@@ -180,7 +181,10 @@ def _dispatch(name: str, args: dict) -> str:
         if name == "read_state":
             return json.dumps(read_state().model_dump(mode="json"))
         if name == "update_plan":
-            return json.dumps(update_plan(args["slots"]).model_dump(mode="json"))
+            from datetime import date as date_type
+            week_of_str = args.get("week_of")
+            week_of = date_type.fromisoformat(week_of_str) if week_of_str else None
+            return json.dumps(update_plan(args["slots"], week_of=week_of).model_dump(mode="json"))
         if name == "update_pantry":
             return json.dumps(update_pantry(
                 add=args.get("add", []), remove=args.get("remove", [])
@@ -213,7 +217,10 @@ def _dispatch(name: str, args: dict) -> str:
             profile = read_profile()
             if profile is None:
                 return json.dumps(["No profile set yet — skipping validation."])
-            return json.dumps(validate_plan(state.meal_plan, profile, state.ratings))
+            return json.dumps(validate_plan(
+                state.meal_plan, profile, state.ratings,
+                plan_history=state.plan_history,
+            ))
         if name == "undo":
             restored = restore_snapshot()
             return json.dumps({"ok": restored is not None})
@@ -244,9 +251,22 @@ def _state_summary() -> str:
         " | ".join(f"{slot.day}: {slot.recipe_title}" for slot in s.meal_plan)
         if s.meal_plan else "(no plan set)"
     )
+    week_label = f"Week of {s.week_of.isoformat()}" if s.week_of else "(no week set)"
     pantry = ", ".join(s.pantry) if s.pantry else "(empty)"
     n_ratings = len(s.ratings)
-    return f"Plan: {plan_line}\nPantry: {pantry}\nRatings recorded: {n_ratings}"
+
+    parts = [
+        f"Current plan ({week_label}): {plan_line}",
+        f"Pantry: {pantry}",
+        f"Ratings recorded: {n_ratings}",
+    ]
+
+    if s.plan_history:
+        last = s.plan_history[-1]
+        last_titles = ", ".join(slot.recipe_title for slot in last.slots)
+        parts.append(f"Last week ({last.week_of.isoformat()}): {last_titles}")
+
+    return "\n".join(parts)
 
 
 def _build_system_prompt() -> str:

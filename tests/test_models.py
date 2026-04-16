@@ -1,5 +1,5 @@
-from datetime import datetime
-from models import Profile, Member, Recipe, Rating, MealPlanSlot, State
+from datetime import datetime, date
+from models import Profile, Member, Recipe, Rating, MealPlanSlot, State, ArchivedPlan
 
 
 def test_profile_roundtrip():
@@ -52,3 +52,51 @@ def test_state_empty_defaults():
     s = State(meal_plan=[], pantry=[], ratings=[], last_updated=datetime(2026, 4, 15))
     assert s.meal_plan == []
     assert s.pantry == []
+
+
+def test_state_has_week_of_field():
+    s = State(meal_plan=[], pantry=[], ratings=[], last_updated=datetime(2026, 4, 15))
+    assert s.week_of is None
+
+
+def test_state_week_of_set():
+    s = State(
+        meal_plan=[], pantry=[], ratings=[],
+        last_updated=datetime(2026, 4, 15),
+        week_of=date(2026, 4, 13),
+    )
+    assert s.week_of == date(2026, 4, 13)
+
+
+def test_archived_plan_roundtrip():
+    slot = MealPlanSlot(
+        day="Mon", recipe_title="Test", recipe_id=None,
+        main_protein="chicken", key_ingredients=["onion"], rationale="test",
+    )
+    ap = ArchivedPlan(week_of=date(2026, 4, 6), slots=[slot])
+    dumped = ap.model_dump_json()
+    loaded = ArchivedPlan.model_validate_json(dumped)
+    assert loaded.week_of == date(2026, 4, 6)
+    assert len(loaded.slots) == 1
+
+
+def test_state_plan_history_default_empty():
+    s = State(meal_plan=[], pantry=[], ratings=[], last_updated=datetime(2026, 4, 15))
+    assert s.plan_history == []
+
+
+def test_state_plan_history_roundtrip():
+    slot = MealPlanSlot(
+        day="Mon", recipe_title="Test", recipe_id=None,
+        main_protein="chicken", key_ingredients=["onion"], rationale="test",
+    )
+    ap = ArchivedPlan(week_of=date(2026, 4, 6), slots=[slot])
+    s = State(
+        meal_plan=[], pantry=[], ratings=[],
+        last_updated=datetime(2026, 4, 15),
+        plan_history=[ap],
+    )
+    dumped = s.model_dump_json()
+    loaded = State.model_validate_json(dumped)
+    assert len(loaded.plan_history) == 1
+    assert loaded.plan_history[0].week_of == date(2026, 4, 6)

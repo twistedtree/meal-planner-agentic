@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from typing import Literal
 from pydantic import BaseModel, Field
 
@@ -49,8 +49,15 @@ class MealPlanSlot(BaseModel):
     rationale: str
 
 
+class ArchivedPlan(BaseModel):
+    week_of: date
+    slots: list[MealPlanSlot]
+
+
 class State(BaseModel):
     meal_plan: list[MealPlanSlot] = Field(default_factory=list)
+    week_of: date | None = None
+    plan_history: list[ArchivedPlan] = Field(default_factory=list)
     pantry: list[str] = Field(default_factory=list)
     ratings: list[Rating] = Field(default_factory=list)
     last_updated: datetime

@@ -1,5 +1,6 @@
 # agents/orchestrator.py
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from anthropic import Anthropic
 from agents.prompts import ORCHESTRATOR_SYSTEM_PROMPT
@@ -8,6 +9,7 @@ from tools.state import (
     read_state, update_plan, update_pantry, record_rating,
     snapshot_for_undo, restore_snapshot,
 )
+import tools.recipes as _recipes_mod
 from tools.recipes import (
     load_all_recipes, list_recipes, search_recipes, get_recipe,
     find_new_recipes_tool,
@@ -196,12 +198,12 @@ def _dispatch(name: str, args: dict) -> str:
                 rating=args["rating"],
             ).model_dump(mode="json"))
         if name == "list_recipes":
-            return json.dumps(list_recipes(load_all_recipes(), filters=args.get("filters")))
+            return json.dumps(list_recipes(_recipes_mod.load_all_recipes(), filters=args.get("filters")))
         if name == "get_recipe":
             return json.dumps(get_recipe(args["id"]))
         if name == "search_recipes":
             return json.dumps(search_recipes(
-                load_all_recipes(),
+                _recipes_mod.load_all_recipes(),
                 query=args["query"],
                 filters=args.get("filters"),
                 top_k=args.get("top_k", 20),
@@ -304,16 +306,30 @@ def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
             text_parts = [b.text for b in response.content if b.type == "text"]
             return ("\n".join(text_parts).strip(), messages)
 
-        # Run every tool call in the response, append results as one user turn
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                result = _dispatch(block.name, block.input or {})
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
-                })
+        # Run every tool call in the response — parallelise where safe
+        tool_blocks = [b for b in response.content if b.type == "tool_use"]
+        if len(tool_blocks) == 1:
+            block = tool_blocks[0]
+            result = _dispatch(block.name, block.input or {})
+            tool_results = [{
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": result,
+            }]
+        else:
+            with ThreadPoolExecutor(max_workers=len(tool_blocks)) as pool:
+                futures = {
+                    pool.submit(_dispatch, block.name, block.input or {}): block
+                    for block in tool_blocks
+                }
+                tool_results = []
+                for future in as_completed(futures):
+                    block = futures[future]
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": future.result(),
+                    })
         messages.append({"role": "user", "content": tool_results})
 
     return ("(tool loop limit hit — simplify your request)", messages)

@@ -1,5 +1,8 @@
+import threading
 from typing import Any
 from models import Recipe
+
+_recipes_lock = threading.Lock()
 
 
 SUMMARY_FIELDS = ("id", "title", "cuisine", "main_protein", "avg_rating",
@@ -85,7 +88,8 @@ def load_all_recipes() -> list[Recipe]:
 
 
 def save_all_recipes(recipes: list[Recipe]) -> None:
-    save_json_list("recipes.json", recipes)
+    with _recipes_lock:
+        save_json_list("recipes.json", recipes)
 
 
 def get_recipe(recipe_id: str) -> dict | None:
@@ -98,16 +102,17 @@ def get_recipe(recipe_id: str) -> dict | None:
 
 def append_recipes(new: list[Recipe]) -> list[Recipe]:
     """Append new recipes, skipping duplicates by id. Returns the newly added."""
-    existing = load_all_recipes()
-    existing_ids = {r.id for r in existing}
-    added: list[Recipe] = []
-    for r in new:
-        if r.id in existing_ids:
-            continue
-        existing.append(r)
-        added.append(r)
-        existing_ids.add(r.id)
-    save_all_recipes(existing)
+    with _recipes_lock:
+        existing = load_all_recipes()
+        existing_ids = {r.id for r in existing}
+        added: list[Recipe] = []
+        for r in new:
+            if r.id in existing_ids:
+                continue
+            existing.append(r)
+            added.append(r)
+            existing_ids.add(r.id)
+        save_json_list("recipes.json", existing)
     return added
 
 

@@ -9,7 +9,7 @@ load_dotenv()
 
 from tools.state import read_state
 from tools.profile import read_profile
-from agents.orchestrator import run_turn
+from agents.orchestrator import run_turn, get_bg_jobs
 
 st.set_page_config(page_title="Meal Planner (Agentic)", layout="wide")
 st.title("Meal Planner")
@@ -80,6 +80,22 @@ def _render_sidebar():
                     st.caption(f"{r.cooked_at.date()} · {r.rater}: {r.recipe_title} → {r.rating}")
 
 
+
+def _render_bg_jobs():
+    """Show a banner for any running background recipe searches."""
+    jobs = get_bg_jobs()
+    for job_id, job in jobs.items():
+        if job["status"] == "running":
+            cur, total, msg = job.get("progress", (0, 1, "Starting..."))
+            st.info(f"\U0001f50d Background search: {msg}")
+            st.progress(cur / total if total > 0 else 0)
+        elif job["status"] == "done" and job.get("result"):
+            count = len(job["result"])
+            st.success(f"\u2705 Recipe search complete \u2014 {count} new recipe(s) added.")
+        elif job["status"] == "error":
+            st.error(f"Recipe search failed: {job.get('result', 'unknown error')}")
+
+
 # --- Layout ---
 _render_sidebar()
 s_header = read_state()
@@ -88,6 +104,7 @@ if s_header.week_of:
 else:
     st.subheader("Meal plan")
 _render_plan_table()
+_render_bg_jobs()
 st.divider()
 st.subheader("Chat")
 

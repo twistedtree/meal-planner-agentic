@@ -1,5 +1,6 @@
 # agents/orchestrator.py
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from anthropic import Anthropic
@@ -18,6 +19,34 @@ from tools.validate import validate_plan
 
 MODEL = "claude-sonnet-4-6"
 MAX_TOOL_ITERATIONS = 15
+
+# --- Background job registry ---
+# Shared across turns within the same Streamlit process.
+_bg_jobs: dict[str, dict] = {}
+_bg_lock = threading.Lock()
+
+
+def get_bg_jobs() -> dict[str, dict]:
+    """Return a shallow copy of background jobs (for UI polling)."""
+    with _bg_lock:
+        return dict(_bg_jobs)
+
+
+def _run_recipe_search_bg(job_id: str, query: str, count: int, profile):
+    """Target for background thread — runs find_new_recipes_tool and stores result."""
+    def _on_progress(cur, total, msg):
+        with _bg_lock:
+            _bg_jobs[job_id]["progress"] = (cur, total, msg)
+
+    try:
+        result = find_new_recipes_tool(query, count, profile, on_progress=_on_progress)
+        with _bg_lock:
+            _bg_jobs[job_id]["status"] = "done"
+            _bg_jobs[job_id]["result"] = result
+    except Exception as e:
+        with _bg_lock:
+            _bg_jobs[job_id]["status"] = "error"
+            _bg_jobs[job_id]["result"] = str(e)
 
 
 # --- Tool schema (what Claude sees) ---
@@ -158,6 +187,15 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "check_search_status",
+        "description": "Check the status of a background recipe search. Returns status ('running', 'done', 'error') and results if done.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
+        },
+    },
+    {
         "name": "validate_plan",
         "description": "Check the current saved plan against hard rules. Returns a list of warnings (empty = OK).",
         "input_schema": {"type": "object", "properties": {}, "required": []},
@@ -209,11 +247,32 @@ def _dispatch(name: str, args: dict) -> str:
                 top_k=args.get("top_k", 20),
             ))
         if name == "find_new_recipes":
-            return json.dumps(find_new_recipes_tool(
-                query=args["query"],
-                count=args.get("count", 3),
-                profile=read_profile(),
-            ))
+            job_id = f"search-{datetime.now().timestamp()}"
+            with _bg_lock:
+                _bg_jobs[job_id] = {"status": "running", "result": None, "progress": (0, 5, "Starting\u2026")}
+            thread = threading.Thread(
+                target=_run_recipe_search_bg,
+                args=(job_id, args["query"], args.get("count", 3), read_profile()),
+                daemon=True,
+            )
+            thread.start()
+            return json.dumps({
+                "status": "started",
+                "job_id": job_id,
+                "message": f"Recipe search for '{args['query']}' running in background. "
+                           f"Use check_search_status to poll, or continue with other tasks.",
+            })
+        if name == "check_search_status":
+            job_id = args["job_id"]
+            with _bg_lock:
+                job = _bg_jobs.get(job_id)
+            if job is None:
+                return json.dumps({"error": f"Unknown job: {job_id}"})
+            return json.dumps({
+                "status": job["status"],
+                "progress": job.get("progress"),
+                "result": job["result"] if job["status"] != "running" else None,
+            })
         if name == "validate_plan":
             state = read_state()
             profile = read_profile()

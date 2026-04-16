@@ -1,5 +1,6 @@
 # app.py
 import os
+from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -29,13 +30,26 @@ def _render_plan_table():
     if not s.meal_plan:
         st.info("No meal plan yet. Ask the agent to plan next week.")
         return
-    rows = [{
-        "Day": slot.day,
-        "Recipe": slot.recipe_title,
-        "Protein": slot.main_protein,
-        "Key ingredients": ", ".join(slot.key_ingredients),
-        "Why": slot.rationale,
-    } for slot in s.meal_plan]
+
+    if s.week_of:
+        monday = s.week_of
+        friday = monday + timedelta(days=4)
+        st.caption(f"Week of {monday.strftime('%d %b')} \u2013 {friday.strftime('%d %b %Y')}")
+
+    day_offsets = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4}
+    rows = []
+    for slot in s.meal_plan:
+        day_label = slot.day
+        if s.week_of:
+            slot_date = s.week_of + timedelta(days=day_offsets.get(slot.day, 0))
+            day_label = f"{slot.day} {slot_date.strftime('%d/%m')}"
+        rows.append({
+            "Day": day_label,
+            "Recipe": slot.recipe_title,
+            "Protein": slot.main_protein,
+            "Key ingredients": ", ".join(slot.key_ingredients),
+            "Why": slot.rationale,
+        })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
@@ -68,7 +82,11 @@ def _render_sidebar():
 
 # --- Layout ---
 _render_sidebar()
-st.subheader("This week")
+s_header = read_state()
+if s_header.week_of:
+    st.subheader(f"Meal plan \u2014 w/c {s_header.week_of.strftime('%d %b %Y')}")
+else:
+    st.subheader("Meal plan")
 _render_plan_table()
 st.divider()
 st.subheader("Chat")

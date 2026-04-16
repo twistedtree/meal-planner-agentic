@@ -1,6 +1,6 @@
 # tools/state.py
-from datetime import datetime
-from models import State, MealPlanSlot, Rating
+from datetime import datetime, date
+from models import State, MealPlanSlot, Rating, ArchivedPlan
 from storage import load_json, save_json, STATE_DIR
 
 
@@ -16,10 +16,14 @@ def read_state() -> State:
     return s
 
 
-def update_plan(slots: list[dict]) -> State:
-    """Replace meal_plan wholesale with the given slots."""
+def update_plan(slots: list[dict], week_of: date | None = None) -> State:
+    """Replace meal_plan wholesale. Archives the previous plan if it had a week_of."""
     s = read_state()
+    if s.meal_plan and s.week_of is not None:
+        s.plan_history.append(ArchivedPlan(week_of=s.week_of, slots=s.meal_plan))
+        s.plan_history = s.plan_history[-4:]
     s.meal_plan = [MealPlanSlot.model_validate(slot) for slot in slots]
+    s.week_of = week_of
     s.last_updated = _now()
     save_json("state.json", s)
     return s

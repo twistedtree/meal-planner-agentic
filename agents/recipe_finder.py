@@ -2,6 +2,7 @@
 import json
 import re
 from datetime import datetime
+from typing import Callable
 from anthropic import Anthropic
 from models import Recipe, Profile
 from agents.prompts import RECIPE_FINDER_SYSTEM_PROMPT
@@ -27,8 +28,16 @@ def _household_context(profile: Profile | None) -> str:
     )
 
 
-def find_new_recipes(query: str, count: int, profile: Profile | None) -> list[Recipe]:
-    """Run an isolated Claude session with web_search, return structured recipes."""
+def find_new_recipes(
+    query: str,
+    count: int,
+    profile: Profile | None,
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> list[Recipe]:
+    """Run an isolated Claude session with web_search, return structured recipes.
+
+    on_progress(current_step, total_steps, message) is called before each API round.
+    """
     client = Anthropic()
     system_prompt = RECIPE_FINDER_SYSTEM_PROMPT.format(
         query=query,
@@ -42,7 +51,9 @@ def find_new_recipes(query: str, count: int, profile: Profile | None) -> list[Re
     }]
 
     text_parts: list[str] = []
-    for _ in range(5):  # at most 5 resumption rounds
+    for i in range(5):  # at most 5 resumption rounds
+        if on_progress:
+            on_progress(i + 1, 5, f"Searching for '{query}'\u2026")
         response = client.messages.create(
             model=MODEL,
             max_tokens=4096,
@@ -64,6 +75,8 @@ def find_new_recipes(query: str, count: int, profile: Profile | None) -> list[Re
             # Anthropic says: resume by sending the model's content back as-is
             messages.append({"role": "assistant", "content": response.content})
             continue
+        if on_progress:
+            on_progress(5, 5, "Processing results\u2026")
         break
 
     raw = "\n".join(text_parts).strip()

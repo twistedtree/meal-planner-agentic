@@ -1,5 +1,5 @@
 import threading
-from typing import Any
+from typing import Any, Callable
 from models import Recipe
 
 _recipes_lock = threading.Lock()
@@ -116,9 +116,14 @@ def append_recipes(new: list[Recipe]) -> list[Recipe]:
     return added
 
 
-def find_new_recipes_tool(query: str, count: int, profile: Profile | None) -> list[dict]:
+def find_new_recipes_tool(
+    query: str,
+    count: int,
+    profile: Profile | None,
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> list[dict]:
     """Tool-facing: spawn subagent, append results to recipes.json, return summaries."""
-    from agents.recipe_finder import find_new_recipes  # local import avoids cycle
-    found = find_new_recipes(query, count, profile)
+    from agents.recipe_finder import find_new_recipes
+    found = find_new_recipes(query, count, profile, on_progress=on_progress)
     added = append_recipes(found)
     return [recipe_summary(r) for r in added]

@@ -1,4 +1,4 @@
-from models import MealPlanSlot, Profile, Rating
+from models import MealPlanSlot, Profile, Rating, ArchivedPlan
 
 FISH_KEYWORDS = {
     "salmon", "tuna", "cod", "haddock", "trout", "mackerel", "sardine",
@@ -40,6 +40,7 @@ def validate_plan(
     plan: list[MealPlanSlot],
     profile: Profile,
     ratings: list[Rating],
+    plan_history: list[ArchivedPlan] | None = None,
 ) -> list[str]:
     """Return a list of human-readable warnings. Empty list = all good."""
     warnings: list[str] = []
@@ -86,5 +87,18 @@ def validate_plan(
             warnings.append(
                 f"{slot.day} ({slot.recipe_title}) was rated never_again by both adults."
             )
+
+    # Rule 5: no recipe from last week's plan
+    if plan_history:
+        last_titles = {
+            s.recipe_title.lower().strip()
+            for s in plan_history[-1].slots
+        }
+        for slot in plan:
+            if slot.recipe_title.lower().strip() in last_titles:
+                warnings.append(
+                    f"{slot.day} ({slot.recipe_title}) was served last week — "
+                    f"avoid repeating meals in consecutive weeks."
+                )
 
     return warnings

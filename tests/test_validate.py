@@ -1,5 +1,5 @@
-from datetime import datetime
-from models import Profile, Member, MealPlanSlot, Rating
+from datetime import datetime, date
+from models import Profile, Member, MealPlanSlot, Rating, ArchivedPlan
 from tools.validate import validate_plan, PRODUCE_KEYWORDS
 
 
@@ -121,3 +121,57 @@ def test_never_again_match_is_case_insensitive():
     plan = [_slot("Mon", "LIVER PIE", ["liver", "onion"])]
     warnings = validate_plan(plan, profile, ratings=ratings)
     assert any("never" in w.lower() for w in warnings)
+
+
+def test_no_repeat_from_last_week_warns():
+    last_week_slots = [
+        _slot("Mon", "Salmon bowls", ["broccoli", "rice"], "salmon"),
+        _slot("Tue", "Chicken curry", ["onion", "tomato"], "chicken"),
+        _slot("Wed", "Tofu stir fry", ["pak choi", "rice"], "tofu"),
+        _slot("Thu", "Beef chilli", ["onion", "tomato"], "beef"),
+        _slot("Fri", "Prawn pasta", ["zucchini", "pasta"], "prawn"),
+    ]
+    plan_history = [ArchivedPlan(week_of=date(2026, 4, 6), slots=last_week_slots)]
+
+    this_week = [
+        _slot("Mon", "Salmon bowls", ["broccoli", "rice"], "salmon"),
+        _slot("Tue", "Chicken traybake", ["potato", "carrot"], "chicken"),
+        _slot("Wed", "Pork stir fry", ["pak choi", "rice"], "pork"),
+        _slot("Thu", "Fish tacos", ["cabbage", "lime"], "fish"),
+        _slot("Fri", "Veg pasta", ["zucchini", "pasta"]),
+    ]
+    warnings = validate_plan(this_week, _profile(), ratings=[], plan_history=plan_history)
+    assert any("salmon bowls" in w.lower() and "last week" in w.lower() for w in warnings)
+
+
+def test_no_repeat_case_insensitive():
+    last_week_slots = [
+        _slot("Mon", "chicken curry", ["onion", "tomato"], "chicken"),
+        _slot("Tue", "Fish pie", ["potato", "carrot"], "fish"),
+        _slot("Wed", "Tofu stir fry", ["pak choi"], "tofu"),
+        _slot("Thu", "Beef chilli", ["onion", "tomato"], "beef"),
+        _slot("Fri", "Prawn pasta", ["zucchini", "pasta"], "prawn"),
+    ]
+    plan_history = [ArchivedPlan(week_of=date(2026, 4, 6), slots=last_week_slots)]
+
+    this_week = [
+        _slot("Mon", "CHICKEN CURRY", ["onion", "tomato"], "chicken"),
+        _slot("Tue", "Salmon bowls", ["broccoli", "rice"], "salmon"),
+        _slot("Wed", "Pork stir fry", ["pak choi", "rice"], "pork"),
+        _slot("Thu", "Fish tacos", ["cabbage", "lime"], "fish"),
+        _slot("Fri", "Veg pasta", ["zucchini", "pasta"]),
+    ]
+    warnings = validate_plan(this_week, _profile(), ratings=[], plan_history=plan_history)
+    assert any("chicken curry" in w.lower() and "last week" in w.lower() for w in warnings)
+
+
+def test_no_repeat_no_history_no_warning():
+    plan = [
+        _slot("Mon", "Salmon bowls", ["broccoli", "rice"], "salmon"),
+        _slot("Tue", "Chicken traybake", ["potato", "carrot"], "chicken"),
+        _slot("Wed", "Tofu stir fry", ["pak choi", "rice"], "tofu"),
+        _slot("Thu", "Beef chilli", ["onion", "tomato"], "beef"),
+        _slot("Fri", "Veg pasta", ["zucchini", "pasta"]),
+    ]
+    warnings = validate_plan(plan, _profile(), ratings=[], plan_history=[])
+    assert not any("last week" in w.lower() for w in warnings)

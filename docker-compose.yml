@@ -1,0 +1,10 @@
+services:
+  meal-planner:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./state:/app/state
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    restart: unless-stopped

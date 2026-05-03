@@ -1,9 +1,10 @@
 # agents/orchestrator.py
 import json
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from anthropic import Anthropic
+from litellm import completion
 from agents.prompts import ORCHESTRATOR_SYSTEM_PROMPT
 from tools.profile import read_profile, update_profile
 from tools.state import (
@@ -15,25 +16,25 @@ from tools.recipes import (
     load_all_recipes, list_recipes, search_recipes, get_recipe,
     find_new_recipes_tool,
 )
+from tools.cookidoo import (
+    list_cookidoo_collections, get_cookidoo_collection, fetch_cookidoo_recipe,
+)
 from tools.validate import validate_plan
 
-MODEL = "claude-sonnet-4-6"
+MODEL = os.getenv("ORCHESTRATOR_MODEL", "openrouter/anthropic/claude-sonnet-4.5")
 MAX_TOOL_ITERATIONS = 15
 
 # --- Background job registry ---
-# Shared across turns within the same Streamlit process.
 _bg_jobs: dict[str, dict] = {}
 _bg_lock = threading.Lock()
 
 
 def get_bg_jobs() -> dict[str, dict]:
-    """Return a shallow copy of background jobs (for UI polling)."""
     with _bg_lock:
         return dict(_bg_jobs)
 
 
 def _run_recipe_search_bg(job_id: str, query: str, count: int, profile):
-    """Target for background thread — runs find_new_recipes_tool and stores result."""
     def _on_progress(cur, total, msg):
         with _bg_lock:
             _bg_jobs[job_id]["progress"] = (cur, total, msg)
@@ -49,169 +50,171 @@ def _run_recipe_search_bg(job_id: str, query: str, count: int, profile):
             _bg_jobs[job_id]["result"] = str(e)
 
 
-# --- Tool schema (what Claude sees) ---
+# --- Tool schema (OpenAI / OpenRouter format) ---
+
+def _tool(name: str, description: str, parameters: dict) -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        },
+    }
+
 
 TOOL_DEFINITIONS = [
-    {
-        "name": "read_profile",
-        "description": "Read the household profile (members, dislikes, dietary rules).",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "update_profile",
-        "description": "Create or merge-update the household profile. Pass any subset of fields.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "household_size": {"type": "integer"},
-                "members": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "is_adult": {"type": "boolean"},
-                            "dislikes": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["name", "is_adult"],
-                    },
-                },
-                "household_dislikes": {"type": "array", "items": {"type": "string"}},
-                "dietary_rules": {"type": "array", "items": {"type": "string"}},
-                "preferred_cuisines": {"type": "array", "items": {"type": "string"}},
-                "notes": {"type": "string"},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "read_state",
-        "description": "Read the current meal plan, pantry, and ratings.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "update_plan",
-        "description": "Replace the meal_plan wholesale. Provide 5 slots (Mon-Fri). Always include week_of (the Monday of the planned week, ISO format YYYY-MM-DD).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "week_of": {"type": "string", "description": "Monday of the planned week (YYYY-MM-DD)"},
-                "slots": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "day": {"type": "string", "enum": ["Mon","Tue","Wed","Thu","Fri"]},
-                            "recipe_title": {"type": "string"},
-                            "recipe_id": {"type": ["string", "null"]},
-                            "main_protein": {"type": "string"},
-                            "key_ingredients": {"type": "array", "items": {"type": "string"}},
-                            "rationale": {"type": "string"},
-                        },
-                        "required": ["day", "recipe_title", "main_protein", "key_ingredients", "rationale"],
-                    },
-                },
-            },
-            "required": ["slots", "week_of"],
-        },
-    },
-    {
-        "name": "update_pantry",
-        "description": "Add/remove perishables in the pantry. In/out only (no quantities).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "add": {"type": "array", "items": {"type": "string"}},
-                "remove": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "record_rating",
-        "description": "Record a rating for a cooked meal.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "recipe_title": {"type": "string"},
-                "rater": {"type": "string"},
-                "rating": {"type": "string",
-                           "enum": ["again_soon", "worth_repeating", "meh", "never_again"]},
-            },
-            "required": ["recipe_title", "rater", "rating"],
-        },
-    },
-    {
-        "name": "list_recipes",
-        "description": "List saved recipes as compact summaries. Optional exact-match filters (cuisine, main_protein, cook_time_min, times_cooked, id).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "filters": {"type": "object"},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "get_recipe",
-        "description": "Fetch full details for one recipe by id.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"id": {"type": "string"}},
-            "required": ["id"],
-        },
-    },
-    {
-        "name": "search_recipes",
-        "description": "Keyword search over saved recipes. Ranks by match count, then rating, then times_cooked.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "filters": {"type": "object"},
-                "top_k": {"type": "integer", "default": 20},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "find_new_recipes",
-        "description": "Spawn a web-search subagent to discover new recipes. Use ONLY when the user explicitly asks to find/discover or update the recipe database.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "count": {"type": "integer", "default": 3},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "check_search_status",
-        "description": "Check the status of a background recipe search. Returns status ('running', 'done', 'error') and results if done.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"job_id": {"type": "string"}},
-            "required": ["job_id"],
-        },
-    },
-    {
-        "name": "validate_plan",
-        "description": "Check the current saved plan against hard rules. Returns a list of warnings (empty = OK).",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "undo",
-        "description": "Restore the state snapshot taken at the start of this turn.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
+    _tool("read_profile",
+          "Read the household profile (members, dislikes, dietary rules).",
+          {"type": "object", "properties": {}, "required": []}),
+    _tool("update_profile",
+          "Create or merge-update the household profile. Pass any subset of fields.",
+          {
+              "type": "object",
+              "properties": {
+                  "household_size": {"type": "integer"},
+                  "members": {
+                      "type": "array",
+                      "items": {
+                          "type": "object",
+                          "properties": {
+                              "name": {"type": "string"},
+                              "is_adult": {"type": "boolean"},
+                              "dislikes": {"type": "array", "items": {"type": "string"}},
+                          },
+                          "required": ["name", "is_adult"],
+                      },
+                  },
+                  "household_dislikes": {"type": "array", "items": {"type": "string"}},
+                  "dietary_rules": {"type": "array", "items": {"type": "string"}},
+                  "preferred_cuisines": {"type": "array", "items": {"type": "string"}},
+                  "notes": {"type": "string"},
+              },
+              "required": [],
+          }),
+    _tool("read_state",
+          "Read the current meal plan, pantry, and ratings.",
+          {"type": "object", "properties": {}, "required": []}),
+    _tool("update_plan",
+          "Replace the meal_plan wholesale. Provide 5 slots (Mon-Fri). Always include week_of (the Monday of the planned week, ISO format YYYY-MM-DD).",
+          {
+              "type": "object",
+              "properties": {
+                  "week_of": {"type": "string", "description": "Monday of the planned week (YYYY-MM-DD)"},
+                  "slots": {
+                      "type": "array",
+                      "items": {
+                          "type": "object",
+                          "properties": {
+                              "day": {"type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri"]},
+                              "recipe_title": {"type": "string"},
+                              "recipe_id": {"type": ["string", "null"]},
+                              "main_protein": {"type": "string"},
+                              "key_ingredients": {"type": "array", "items": {"type": "string"}},
+                              "rationale": {"type": "string"},
+                          },
+                          "required": ["day", "recipe_title", "main_protein", "key_ingredients", "rationale"],
+                      },
+                  },
+              },
+              "required": ["slots", "week_of"],
+          }),
+    _tool("update_pantry",
+          "Add/remove perishables in the pantry. In/out only (no quantities).",
+          {
+              "type": "object",
+              "properties": {
+                  "add": {"type": "array", "items": {"type": "string"}},
+                  "remove": {"type": "array", "items": {"type": "string"}},
+              },
+              "required": [],
+          }),
+    _tool("record_rating",
+          "Record a rating for a cooked meal.",
+          {
+              "type": "object",
+              "properties": {
+                  "recipe_title": {"type": "string"},
+                  "rater": {"type": "string"},
+                  "rating": {"type": "string",
+                             "enum": ["again_soon", "worth_repeating", "meh", "never_again"]},
+              },
+              "required": ["recipe_title", "rater", "rating"],
+          }),
+    _tool("list_recipes",
+          "List saved recipes as compact summaries. Optional exact-match filters (cuisine, main_protein, cook_time_min, times_cooked, id).",
+          {
+              "type": "object",
+              "properties": {"filters": {"type": "object"}},
+              "required": [],
+          }),
+    _tool("get_recipe",
+          "Fetch full details for one recipe by id.",
+          {
+              "type": "object",
+              "properties": {"id": {"type": "string"}},
+              "required": ["id"],
+          }),
+    _tool("search_recipes",
+          "Keyword search over saved recipes. Ranks by match count, then rating, then times_cooked.",
+          {
+              "type": "object",
+              "properties": {
+                  "query": {"type": "string"},
+                  "filters": {"type": "object"},
+                  "top_k": {"type": "integer", "default": 20},
+              },
+              "required": ["query"],
+          }),
+    _tool("find_new_recipes",
+          "Spawn a web-search subagent to discover new recipes. Use ONLY when the user explicitly asks to find/discover or update the recipe database.",
+          {
+              "type": "object",
+              "properties": {
+                  "query": {"type": "string"},
+                  "count": {"type": "integer", "default": 3},
+              },
+              "required": ["query"],
+          }),
+    _tool("check_search_status",
+          "Check the status of a background recipe search. Returns status ('running', 'done', 'error') and results if done.",
+          {
+              "type": "object",
+              "properties": {"job_id": {"type": "string"}},
+              "required": ["job_id"],
+          }),
+    _tool("list_cookidoo_collections",
+          "List the household's Cookidoo (Thermomix) managed collections. Use when the user asks about their Cookidoo library or Thermomix recipes. Returns [{id, name, description, recipe_count}].",
+          {"type": "object", "properties": {}, "required": []}),
+    _tool("get_cookidoo_collection",
+          "Fetch the recipes inside one Cookidoo collection. Returns [{id, name, total_time_min, chapter}]. The recipe id (e.g. 'r471786') is what to pass to fetch_cookidoo_recipe.",
+          {
+              "type": "object",
+              "properties": {"col_id": {"type": "string"}},
+              "required": ["col_id"],
+          }),
+    _tool("fetch_cookidoo_recipe",
+          "Fetch full authenticated details for one Cookidoo recipe (ingredients, time, url) and save it to the recipe library. The id looks like 'r471786' and can come from get_cookidoo_collection or from a cookidoo.com.au URL path segment.",
+          {
+              "type": "object",
+              "properties": {"recipe_id": {"type": "string"}},
+              "required": ["recipe_id"],
+          }),
+    _tool("validate_plan",
+          "Check the current saved plan against hard rules. Returns a list of warnings (empty = OK).",
+          {"type": "object", "properties": {}, "required": []}),
+    _tool("undo",
+          "Restore the state snapshot taken at the start of this turn.",
+          {"type": "object", "properties": {}, "required": []}),
 ]
 
 
 # --- Tool dispatcher ---
 
+MAX_TOOL_RESULT_CHARS = 4000
+
+
 def _dispatch(name: str, args: dict) -> str:
-    """Run a tool and return a JSON-serialisable string result for the agent."""
     try:
         if name == "read_profile":
             p = read_profile()
@@ -224,7 +227,15 @@ def _dispatch(name: str, args: dict) -> str:
             from datetime import date as date_type
             week_of_str = args.get("week_of")
             week_of = date_type.fromisoformat(week_of_str) if week_of_str else None
-            return json.dumps(update_plan(args["slots"], week_of=week_of).model_dump(mode="json"))
+            state = update_plan(args["slots"], week_of=week_of)
+            profile = read_profile()
+            warnings = []
+            if profile:
+                warnings = validate_plan(
+                    state.meal_plan, profile, state.ratings,
+                    plan_history=state.plan_history,
+                )
+            return json.dumps({"ok": True, "warnings": warnings})
         if name == "update_pantry":
             return json.dumps(update_pantry(
                 add=args.get("add", []), remove=args.get("remove", [])
@@ -247,21 +258,12 @@ def _dispatch(name: str, args: dict) -> str:
                 top_k=args.get("top_k", 20),
             ))
         if name == "find_new_recipes":
-            job_id = f"search-{datetime.now().timestamp()}"
-            with _bg_lock:
-                _bg_jobs[job_id] = {"status": "running", "result": None, "progress": (0, 5, "Starting\u2026")}
-            thread = threading.Thread(
-                target=_run_recipe_search_bg,
-                args=(job_id, args["query"], args.get("count", 3), read_profile()),
-                daemon=True,
+            result = find_new_recipes_tool(
+                query=args["query"],
+                count=args.get("count", 3),
+                profile=read_profile(),
             )
-            thread.start()
-            return json.dumps({
-                "status": "started",
-                "job_id": job_id,
-                "message": f"Recipe search for '{args['query']}' running in background. "
-                           f"Use check_search_status to poll, or continue with other tasks.",
-            })
+            return json.dumps(result)
         if name == "check_search_status":
             job_id = args["job_id"]
             with _bg_lock:
@@ -273,6 +275,12 @@ def _dispatch(name: str, args: dict) -> str:
                 "progress": job.get("progress"),
                 "result": job["result"] if job["status"] != "running" else None,
             })
+        if name == "list_cookidoo_collections":
+            return json.dumps(list_cookidoo_collections())
+        if name == "get_cookidoo_collection":
+            return json.dumps(get_cookidoo_collection(args["col_id"]))
+        if name == "fetch_cookidoo_recipe":
+            return json.dumps(fetch_cookidoo_recipe(args["recipe_id"]))
         if name == "validate_plan":
             state = read_state()
             profile = read_profile()
@@ -286,7 +294,7 @@ def _dispatch(name: str, args: dict) -> str:
             restored = restore_snapshot()
             return json.dumps({"ok": restored is not None})
         return json.dumps({"error": f"unknown tool: {name}"})
-    except Exception as exc:  # surface errors back to the agent, don't crash the session
+    except Exception as exc:
         return json.dumps({"error": str(exc)})
 
 
@@ -338,57 +346,101 @@ def _build_system_prompt() -> str:
     )
 
 
+# --- History management ---
+
+MAX_HISTORY_TURNS = 20
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """Keep only the last MAX_HISTORY_TURNS messages.
+
+    Tool results accumulate large JSON blobs, and the system prompt already
+    re-injects current state each turn. After trimming, drop any leading
+    orphaned tool messages (a `tool` role with no preceding `assistant`
+    tool_calls would error out the API).
+    """
+    if len(history) <= MAX_HISTORY_TURNS:
+        return history
+    trimmed = history[-MAX_HISTORY_TURNS:]
+    while trimmed and trimmed[0].get("role") == "tool":
+        trimmed = trimmed[1:]
+    return trimmed
+
+
 # --- Public API ---
 
 def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
     """Run one conversational turn. Returns (assistant text, updated history).
 
-    history is a list of {role, content} dicts in the Anthropic Messages API shape.
+    history is a list of OpenAI-shape messages: {role, content, [tool_calls], [tool_call_id]}.
     """
-    snapshot_for_undo()  # capture state at turn entry — undo restores to here
-    client = Anthropic()
-    messages = history + [{"role": "user", "content": user_message}]
-    system = _build_system_prompt()
+    snapshot_for_undo()
+    history = _trim_history(history)
+    messages = (
+        [{"role": "system", "content": _build_system_prompt()}]
+        + history
+        + [{"role": "user", "content": user_message}]
+    )
 
-    for _ in range(MAX_TOOL_ITERATIONS):
-        response = client.messages.create(
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        response = completion(
             model=MODEL,
-            max_tokens=4096,
-            system=system,
-            tools=TOOL_DEFINITIONS,
             messages=messages,
+            tools=TOOL_DEFINITIONS,
+            max_tokens=4096,
         )
-        # Append assistant turn
-        messages.append({"role": "assistant", "content": response.content})
+        choice = response.choices[0]
+        msg = choice.message
+        tool_calls = getattr(msg, "tool_calls", None) or []
 
-        if response.stop_reason != "tool_use":
-            text_parts = [b.text for b in response.content if b.type == "text"]
-            return ("\n".join(text_parts).strip(), messages)
-
-        # Run every tool call in the response — parallelise where safe
-        tool_blocks = [b for b in response.content if b.type == "tool_use"]
-        if len(tool_blocks) == 1:
-            block = tool_blocks[0]
-            result = _dispatch(block.name, block.input or {})
-            tool_results = [{
-                "type": "tool_result",
-                "tool_use_id": block.id,
-                "content": result,
-            }]
-        else:
-            with ThreadPoolExecutor(max_workers=len(tool_blocks)) as pool:
-                futures = {
-                    pool.submit(_dispatch, block.name, block.input or {}): block
-                    for block in tool_blocks
+        assistant_entry = {
+            "role": "assistant",
+            "content": msg.content or "",
+        }
+        if tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
                 }
-                tool_results = []
-                for future in as_completed(futures):
-                    block = futures[future]
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": future.result(),
-                    })
-        messages.append({"role": "user", "content": tool_results})
+                for tc in tool_calls
+            ]
+        messages.append(assistant_entry)
 
-    return ("(tool loop limit hit — simplify your request)", messages)
+        if not tool_calls:
+            return ((msg.content or "").strip(), messages[1:])  # drop system
+
+        if iteration > 0:
+            import time
+            time.sleep(2)
+
+        def _run_one(tc):
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            result = _dispatch(tc.function.name, args)
+            if len(result) > MAX_TOOL_RESULT_CHARS:
+                result = result[:MAX_TOOL_RESULT_CHARS] + " ...(truncated)"
+            return {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "name": tc.function.name,
+                "content": result,
+            }
+
+        if len(tool_calls) == 1:
+            messages.append(_run_one(tool_calls[0]))
+        else:
+            results: list[dict] = []
+            with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
+                futures = {pool.submit(_run_one, tc): tc for tc in tool_calls}
+                for future in as_completed(futures):
+                    results.append(future.result())
+            # Order results to match tool_calls order (required by API)
+            id_order = {tc.id: i for i, tc in enumerate(tool_calls)}
+            results.sort(key=lambda r: id_order[r["tool_call_id"]])
+            messages.extend(results)
+
+    return ("(tool loop limit hit — simplify your request)", messages[1:])

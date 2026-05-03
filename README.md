@@ -9,7 +9,7 @@ See [design spec](docs/superpowers/specs/2026-04-15-meal-planner-agentic-design.
 ```bash
 uv venv
 uv pip install -e ".[dev]"
-cp .env.example .env   # fill ANTHROPIC_API_KEY
+cp .env.example .env   # fill OPENROUTER_API_KEY (and optionally override model strings)
 streamlit run app.py   # → http://localhost:8501
 ```
 

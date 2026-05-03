@@ -1,13 +1,22 @@
 # agents/recipe_finder.py
 import json
+import os
 import re
+import time
+import threading
 from datetime import datetime
 from typing import Callable
-from anthropic import Anthropic
+from litellm import completion
+from litellm.exceptions import RateLimitError
 from models import Recipe, Profile
 from agents.prompts import RECIPE_FINDER_SYSTEM_PROMPT
 
-MODEL = "claude-sonnet-4-6"
+# Use a model with the ':online' suffix so OpenRouter routes web search
+# (via Exa) automatically. Override with RECIPE_FINDER_MODEL in .env.
+MODEL = os.getenv("RECIPE_FINDER_MODEL", "openrouter/google/gemini-2.5-flash:online")
+
+# Limit concurrent recipe-finder API sessions to avoid rate-limit bursts.
+_api_semaphore = threading.Semaphore(1)
 
 
 def _slugify(title: str) -> str:
@@ -34,54 +43,45 @@ def find_new_recipes(
     profile: Profile | None,
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> list[Recipe]:
-    """Run an isolated Claude session with web_search, return structured recipes.
-
-    on_progress(current_step, total_steps, message) is called before each API round.
-    """
-    client = Anthropic()
+    """Run an isolated LLM call with web search (via OpenRouter ':online'),
+    return structured recipes."""
     system_prompt = RECIPE_FINDER_SYSTEM_PROMPT.format(
         query=query,
         count=count,
         household_context=_household_context(profile),
     )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Find {count} recipes for: {query}"},
+    ]
 
-    messages: list[dict] = [{
-        "role": "user",
-        "content": f"Find {count} recipes for: {query}",
-    }]
-
-    text_parts: list[str] = []
-    for i in range(5):  # at most 5 resumption rounds
+    with _api_semaphore:
         if on_progress:
-            on_progress(i + 1, 5, f"Searching for '{query}'\u2026")
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            tools=[{
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": 5,
-            }],
-            messages=messages,
-        )
-        # Collect text from this response
-        for block in response.content:
-            if block.type == "text":
-                text_parts.append(block.text)
+            on_progress(1, 2, f"Searching for '{query}'…")
 
-        # End or pause?
-        if response.stop_reason == "pause_turn":
-            # Anthropic says: resume by sending the model's content back as-is
-            messages.append({"role": "assistant", "content": response.content})
-            continue
+        response = None
+        for attempt in range(4):
+            try:
+                response = completion(
+                    model=MODEL,
+                    messages=messages,
+                    max_tokens=4096,
+                )
+                break
+            except RateLimitError:
+                wait = 2 ** attempt * 15
+                if on_progress:
+                    on_progress(1, 2, f"Rate limited, retrying in {wait}s…")
+                time.sleep(wait)
+
         if on_progress:
-            on_progress(5, 5, "Processing results\u2026")
-        break
+            on_progress(2, 2, "Processing results…")
 
-    raw = "\n".join(text_parts).strip()
+    if response is None:
+        return []
 
-    # Pull the JSON array out of the response
+    raw = (response.choices[0].message.content or "").strip()
+
     match = re.search(r"\[\s*\{.*?\}\s*\]", raw, re.DOTALL)
     if not match:
         return []
@@ -103,6 +103,7 @@ def find_new_recipes(
                 tags=item.get("tags", []),
                 cook_time_min=int(item.get("cook_time_min", 30)),
                 source_url=item.get("source_url"),
+                source="web",
                 added_at=now,
             ))
         except (KeyError, ValueError):

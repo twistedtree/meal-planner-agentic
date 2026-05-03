@@ -14,8 +14,8 @@ from agents.orchestrator import run_turn, get_bg_jobs
 st.set_page_config(page_title="Meal Planner (Agentic)", layout="wide")
 st.title("Meal Planner")
 
-if not os.getenv("ANTHROPIC_API_KEY"):
-    st.error("ANTHROPIC_API_KEY not set. Add it to .env and restart.")
+if not os.getenv("OPENROUTER_API_KEY"):
+    st.error("OPENROUTER_API_KEY not set. Add it to .env and restart.")
     st.stop()
 
 # --- Session state ---

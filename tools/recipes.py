@@ -6,7 +6,7 @@ _recipes_lock = threading.Lock()
 
 
 SUMMARY_FIELDS = ("id", "title", "cuisine", "main_protein", "avg_rating",
-                  "times_cooked", "tags", "cook_time_min")
+                  "times_cooked", "tags", "cook_time_min", "source")
 
 FILTERABLE_FIELDS = frozenset({
     "id", "cuisine", "main_protein", "cook_time_min", "times_cooked"

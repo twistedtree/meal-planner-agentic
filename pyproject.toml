@@ -2,13 +2,14 @@
 name = "meal-planner-agentic"
 version = "0.1.0"
 description = "Chat-driven weekly meal planner with Claude agents"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=0.40.0",
+    "litellm>=1.52.0",
     "streamlit>=1.40.0",
     "pydantic>=2.8.0",
     "python-dotenv>=1.0.0",
     "pandas>=2.0.0",
+    "cookidoo-api>=0.17.0",
 ]
 
 [project.optional-dependencies]

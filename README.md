@@ -34,8 +34,30 @@ Delete any of these to reset that slice of state.
 ## Tests
 
 ```bash
-.venv/Scripts/pytest.exe -v   # Windows
-.venv/bin/pytest -v           # macOS/Linux
+.venv/Scripts/pytest.exe -v          # unit tests only (default; fast, free)
+.venv/Scripts/pytest.exe -m eval -v  # opt-in real-model evals (cost tokens)
 ```
 
-Covers: validator rules, storage round-trips, search ranking, model serialization.
+Unit tests cover: validator rules, storage round-trips, search ranking, model
+serialization, recipe CRUD, tracing.
+
+Evals replay scripted user turns against the live model and assert tool-call
+shape + token ceilings. Each run appends a row to `traces/eval_runs.csv`.
+
+## Tracing
+
+Every chat turn writes:
+
+- `traces/summary.jsonl` — one JSON line per turn: `{turn_id, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, tool_calls}`.
+- `traces/full/<turn_id>.json` — full message list for replay / debugging.
+
+Sidebar shows the last turn's cost. `traces/` is gitignored.
+
+## Project docs
+
+- `docs/BRD.md` — business requirements
+- `docs/PRD.md` — product capabilities (current state)
+- `docs/BUILD_SPEC.md` — current implementation
+- `docs/architecture.yaml` — machine-readable architecture (source of truth for `BUILD_SPEC.md`)
+- `docs/superpowers/specs/` — per-sub-project design specs
+- `docs/superpowers/plans/` — per-sub-project implementation plans

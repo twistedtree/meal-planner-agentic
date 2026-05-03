@@ -151,9 +151,14 @@ def find_new_recipes_tool(
     count: int,
     profile: Profile | None,
     on_progress: Callable[[int, int, str], None] | None = None,
+    parent_turn_id: str | None = None,
 ) -> list[dict]:
     """Tool-facing: spawn subagent, append results to recipes.json, return summaries."""
     from agents.recipe_finder import find_new_recipes
-    found = find_new_recipes(query, count, profile, on_progress=on_progress)
+    found, _sub = find_new_recipes(
+        query, count, profile,
+        on_progress=on_progress,
+        parent_turn_id=parent_turn_id,
+    )
     added = append_recipes(found)
     return [recipe_summary(r) for r in added]

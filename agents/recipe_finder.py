@@ -42,9 +42,14 @@ def find_new_recipes(
     count: int,
     profile: Profile | None,
     on_progress: Callable[[int, int, str], None] | None = None,
-) -> list[Recipe]:
+    parent_turn_id: str | None = None,
+) -> tuple[list[Recipe], dict]:
     """Run an isolated LLM call with web search (via OpenRouter ':online'),
-    return structured recipes."""
+    return (recipes, sub_summary)."""
+    import time as _time
+    import tracing as _tracing
+
+    sub_id = _tracing.start_turn(f"[subagent] {query}")
     system_prompt = RECIPE_FINDER_SYSTEM_PROMPT.format(
         query=query,
         count=count,
@@ -62,11 +67,13 @@ def find_new_recipes(
         response = None
         for attempt in range(4):
             try:
+                t0 = _time.monotonic()
                 response = completion(
                     model=MODEL,
                     messages=messages,
                     max_tokens=4096,
                 )
+                _tracing.record_completion(sub_id, response, (_time.monotonic() - t0) * 1000)
                 break
             except RateLimitError:
                 wait = 2 ** attempt * 15
@@ -78,34 +85,44 @@ def find_new_recipes(
             on_progress(2, 2, "Processing results…")
 
     if response is None:
-        return []
+        _tracing.end_turn(sub_id, "(no response)", messages)
+        return ([], {"sub_turn_id": sub_id, "recipes_found": 0, "model": MODEL})
 
     raw = (response.choices[0].message.content or "").strip()
 
-    match = re.search(r"\[\s*\{.*?\}\s*\]", raw, re.DOTALL)
-    if not match:
-        return []
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return []
-
     out: list[Recipe] = []
-    now = datetime.now()
-    for item in parsed:
+    match = re.search(r"\[\s*\{.*?\}\s*\]", raw, re.DOTALL)
+    if match:
         try:
-            out.append(Recipe(
-                id=_slugify(item.get("title", "")),
-                title=item["title"],
-                cuisine=item.get("cuisine", "unknown"),
-                main_protein=item.get("main_protein", "unknown"),
-                key_ingredients=item.get("key_ingredients", []),
-                tags=item.get("tags", []),
-                cook_time_min=int(item.get("cook_time_min", 30)),
-                source_url=item.get("source_url"),
-                source="web",
-                added_at=now,
-            ))
-        except (KeyError, ValueError):
-            continue
-    return out
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            parsed = []
+        now = datetime.now()
+        for item in parsed:
+            try:
+                out.append(Recipe(
+                    id=_slugify(item.get("title", "")),
+                    title=item["title"],
+                    cuisine=item.get("cuisine", "unknown"),
+                    main_protein=item.get("main_protein", "unknown"),
+                    key_ingredients=item.get("key_ingredients", []),
+                    tags=item.get("tags", []),
+                    cook_time_min=int(item.get("cook_time_min", 30)),
+                    source_url=item.get("source_url"),
+                    source="web",
+                    added_at=now,
+                ))
+            except (KeyError, ValueError):
+                continue
+
+    final_messages = messages + [{"role": "assistant", "content": raw}]
+    _tracing.end_turn(sub_id, raw[:500], final_messages)
+
+    sub_summary = {
+        "sub_turn_id": sub_id,
+        "model": MODEL,
+        "recipes_found": len(out),
+    }
+    if parent_turn_id:
+        _tracing.attach_subagent(parent_turn_id, sub_summary)
+    return (out, sub_summary)

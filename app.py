@@ -79,6 +79,18 @@ def _render_sidebar():
                 for r in s.ratings[-10:]:
                     st.caption(f"{r.cooked_at.date()} · {r.rater}: {r.recipe_title} → {r.rating}")
 
+        st.subheader("Last turn")
+        import tracing
+        last = tracing.last_turn_summary()
+        if last is None:
+            st.caption("(no traces yet)")
+        else:
+            tot = last.get("total_tokens", 0)
+            ms = last.get("latency_ms", 0)
+            n_tools = len(last.get("tool_calls", []))
+            tot_str = f"{tot/1000:.1f}K" if tot >= 1000 else str(tot)
+            st.caption(f"{tot_str} tokens · {ms/1000:.1f}s · {n_tools} tools")
+
 
 
 def _render_bg_jobs():

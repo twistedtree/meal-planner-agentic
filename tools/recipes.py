@@ -116,6 +116,25 @@ def append_recipes(new: list[Recipe]) -> list[Recipe]:
     return added
 
 
+_IMMUTABLE_FIELDS = frozenset({"id", "added_at"})
+
+
+def update_recipe(recipe_id: str, fields: dict) -> dict | None:
+    """Merge-update fields on an existing recipe. id and added_at are immutable.
+    Returns the updated recipe summary, or None if id not found."""
+    safe_fields = {k: v for k, v in fields.items() if k not in _IMMUTABLE_FIELDS}
+    with _recipes_lock:
+        existing = load_all_recipes()
+        for i, r in enumerate(existing):
+            if r.id == recipe_id:
+                merged = r.model_dump()
+                merged.update(safe_fields)
+                existing[i] = Recipe.model_validate(merged)
+                save_json_list("recipes.json", existing)
+                return recipe_summary(existing[i])
+    return None
+
+
 def find_new_recipes_tool(
     query: str,
     count: int,

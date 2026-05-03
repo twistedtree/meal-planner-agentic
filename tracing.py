@@ -29,7 +29,7 @@ def start_turn(user_message: str) -> str:
     ts = _now_iso()
     # Sanitize timestamp for use in filenames (replace colons)
     safe_ts = ts.replace(":", "-")
-    turn_id = f"{safe_ts}-{uuid.uuid4().hex[:6]}"
+    turn_id = f"{safe_ts}-{uuid.uuid4().hex}"
     with _lock:
         _turns[turn_id] = {
             "turn_id": turn_id,

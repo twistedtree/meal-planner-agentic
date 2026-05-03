@@ -14,7 +14,7 @@ from tools.state import (
 import tools.recipes as _recipes_mod
 from tools.recipes import (
     load_all_recipes, list_recipes, search_recipes, get_recipe,
-    find_new_recipes_tool,
+    find_new_recipes_tool, update_recipe, delete_recipe,
 )
 from tools.cookidoo import (
     list_cookidoo_collections, get_cookidoo_collection, fetch_cookidoo_recipe,
@@ -176,6 +176,35 @@ TOOL_DEFINITIONS = [
               },
               "required": ["query"],
           }),
+    _tool("update_recipe",
+          "Edit fields on a saved recipe. Pass any subset of fields. id is immutable.",
+          {
+              "type": "object",
+              "properties": {
+                  "recipe_id": {"type": "string"},
+                  "fields": {
+                      "type": "object",
+                      "properties": {
+                          "title":           {"type": "string"},
+                          "cuisine":         {"type": "string"},
+                          "main_protein":    {"type": "string"},
+                          "key_ingredients": {"type": "array", "items": {"type": "string"}},
+                          "tags":            {"type": "array", "items": {"type": "string"}},
+                          "cook_time_min":   {"type": "integer"},
+                          "source_url":      {"type": ["string", "null"]},
+                          "source":          {"type": "string"},
+                          "notes":           {"type": "string"},
+                      },
+                      "additionalProperties": False,
+                  },
+              },
+              "required": ["recipe_id", "fields"],
+          }),
+    _tool("delete_recipe",
+          "Remove a saved recipe by id.",
+          {"type": "object",
+           "properties": {"recipe_id": {"type": "string"}},
+           "required": ["recipe_id"]}),
     _tool("check_search_status",
           "Check the status of a background recipe search. Returns status ('running', 'done', 'error') and results if done.",
           {
@@ -264,6 +293,12 @@ def _dispatch(name: str, args: dict) -> str:
                 profile=read_profile(),
             )
             return json.dumps(result)
+        if name == "update_recipe":
+            result = update_recipe(args["recipe_id"], args.get("fields", {}))
+            return json.dumps(result)
+        if name == "delete_recipe":
+            ok = delete_recipe(args["recipe_id"])
+            return json.dumps({"ok": ok})
         if name == "check_search_status":
             job_id = args["job_id"]
             with _bg_lock:

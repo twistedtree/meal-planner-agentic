@@ -85,7 +85,7 @@ Per capability: user story, current behaviour, known limitations, planned next.
 Generated/maintained alongside `architecture.yaml`. Sections:
 
 - **Components** — `app.py`, `agents/orchestrator.py`, `agents/recipe_finder.py`, tools modules, `storage.py`, `models.py`, `tracing.py` (new).
-- **Tools exposed to orchestrator** — full table with name, signature, side-effects, source file. Today: 16 tools; after this sub-project: 18 (+`update_recipe`, +`delete_recipe`).
+- **Tools exposed to orchestrator** — full table with name, signature, side-effects, source file. Today: 15 tools; after this sub-project: 17 (+`update_recipe`, +`delete_recipe`).
 - **State files** (`state/profile.json`, `state/recipes.json`, `state/state.json`) — schema reference, who reads/writes.
 - **External services** — OpenRouter (orchestrator + subagent), Cookidoo API (`cookidoo-api` lib), Web search (via `:online` model suffix).
 - **Background workers** — recipe-search bg job registry in `orchestrator.py`.

@@ -25,3 +25,7 @@ py-modules = ["app", "models", "storage"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "eval: real-model evals (cost money, opt-in via -m eval)",
+]
+addopts = "-m 'not eval'"

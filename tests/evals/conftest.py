@@ -17,6 +17,19 @@ import tracing
 FIXTURES = Path(__file__).parent / "fixtures"
 EVAL_RUNS_CSV = Path(__file__).resolve().parents[2] / "traces" / "eval_runs.csv"
 
+# Per-test outcome stash. The makereport hook fills this during the "call"
+# phase so the autouse fixture's teardown can record the true per-test result
+# instead of falling back to session-level flags.
+_OUTCOME_KEY = pytest.StashKey[bool]()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call":
+        item.stash[_OUTCOME_KEY] = rep.passed
+
 
 @pytest.fixture
 def fresh_state(tmp_path, monkeypatch):
@@ -71,7 +84,7 @@ def _record_eval_run(request, monkeypatch, tmp_path_factory):
                 "prompt_tokens", "completion_tokens", "total_tokens",
                 "latency_ms", "tool_calls", "passed",
             ])
-        passed = not request.session.testsfailed  # rough; per-test pass would need a hook
+        passed = request.node.stash.get(_OUTCOME_KEY, False)
         w.writerow([
             datetime.now(timezone.utc).isoformat(),
             request.node.nodeid,

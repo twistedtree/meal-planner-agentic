@@ -135,6 +135,17 @@ def update_recipe(recipe_id: str, fields: dict) -> dict | None:
     return None
 
 
+def delete_recipe(recipe_id: str) -> bool:
+    """Remove a recipe by id. Returns True if removed, False if not found."""
+    with _recipes_lock:
+        existing = load_all_recipes()
+        new = [r for r in existing if r.id != recipe_id]
+        if len(new) == len(existing):
+            return False
+        save_json_list("recipes.json", new)
+        return True
+
+
 def find_new_recipes_tool(
     query: str,
     count: int,

@@ -64,3 +64,18 @@ def test_update_recipe_invalid_type_raises(tmp_path, monkeypatch):
 def test_update_recipe_unknown_id_returns_none(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch, [_r("salmon-bowls")])
     assert recipes_mod.update_recipe("nope", {"cuisine": "x"}) is None
+
+
+def test_delete_recipe_removes_row(tmp_path, monkeypatch):
+    _seed(tmp_path, monkeypatch, [_r("salmon-bowls"), _r("ratatouille")])
+
+    assert recipes_mod.delete_recipe("salmon-bowls") is True
+
+    persisted = recipes_mod.load_all_recipes()
+    assert [r.id for r in persisted] == ["ratatouille"]
+
+
+def test_delete_recipe_unknown_id_returns_false(tmp_path, monkeypatch):
+    _seed(tmp_path, monkeypatch, [_r("salmon-bowls")])
+    assert recipes_mod.delete_recipe("nope") is False
+    assert len(recipes_mod.load_all_recipes()) == 1

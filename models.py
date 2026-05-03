@@ -30,6 +30,8 @@ class Recipe(BaseModel):
     times_cooked: int = 0
     avg_rating: float | None = None
     source_url: str | None = None
+    source: str = "unknown"  # "cookidoo", "web", "manual", "knowledge"
+    notes: str = ""
     added_at: datetime
 
 

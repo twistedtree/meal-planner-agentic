@@ -100,3 +100,24 @@ def test_state_plan_history_roundtrip():
     loaded = State.model_validate_json(dumped)
     assert len(loaded.plan_history) == 1
     assert loaded.plan_history[0].week_of == date(2026, 4, 6)
+
+
+def test_recipe_notes_defaults_to_empty_string():
+    r = Recipe(
+        id="x", title="X", cuisine="x", main_protein="x",
+        key_ingredients=["a"], cook_time_min=10,
+        added_at=datetime(2026, 5, 3),
+    )
+    assert r.notes == ""
+
+
+def test_recipe_notes_round_trips():
+    r = Recipe(
+        id="x", title="X", cuisine="x", main_protein="x",
+        key_ingredients=["a"], cook_time_min=10,
+        added_at=datetime(2026, 5, 3),
+        notes="great with brown rice",
+    )
+    j = r.model_dump_json()
+    r2 = Recipe.model_validate_json(j)
+    assert r2.notes == "great with brown rice"

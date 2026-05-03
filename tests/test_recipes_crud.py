@@ -59,3 +59,8 @@ def test_update_recipe_invalid_type_raises(tmp_path, monkeypatch):
 
     with pytest.raises(ValidationError):
         recipes_mod.update_recipe("salmon-bowls", {"cook_time_min": "twenty"})
+
+
+def test_update_recipe_unknown_id_returns_none(tmp_path, monkeypatch):
+    _seed(tmp_path, monkeypatch, [_r("salmon-bowls")])
+    assert recipes_mod.update_recipe("nope", {"cuisine": "x"}) is None

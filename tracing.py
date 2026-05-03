@@ -27,7 +27,9 @@ def _now_iso() -> str:
 
 def start_turn(user_message: str) -> str:
     ts = _now_iso()
-    turn_id = f"{ts}-{uuid.uuid4().hex[:6]}"
+    # Sanitize timestamp for use in filenames (replace colons)
+    safe_ts = ts.replace(":", "-")
+    turn_id = f"{safe_ts}-{uuid.uuid4().hex[:6]}"
     with _lock:
         _turns[turn_id] = {
             "turn_id": turn_id,
@@ -108,5 +110,42 @@ def record_tool_call(turn_id: str, name: str, args: Any,
                 "result_chars": int(result_chars),
                 "ms": float(ms),
             })
+    except Exception:
+        return
+
+
+def _ensure_dirs() -> None:
+    TRACES_DIR.mkdir(parents=True, exist_ok=True)
+    FULL_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def end_turn(turn_id: str, final_text: str, messages: list[dict]) -> None:
+    try:
+        with _lock:
+            t = _turns.pop(turn_id, None)
+        if t is None:
+            return
+        t["final_text_chars"] = len(final_text or "")
+
+        _ensure_dirs()
+        with SUMMARY_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(t) + "\n")
+        full_path = FULL_DIR / f"{turn_id}.json"
+        full_path.write_text(
+            json.dumps({"turn_id": turn_id, "messages": messages}, default=str, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
+
+
+def attach_subagent(parent_turn_id: str, sub_summary: dict) -> None:
+    """Called by subagent code to nest its summary under the parent turn."""
+    try:
+        with _lock:
+            t = _turns.get(parent_turn_id)
+            if t is None:
+                return
+            t["subagent_calls"].append(sub_summary)
     except Exception:
         return

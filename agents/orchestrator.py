@@ -1,10 +1,12 @@
 # agents/orchestrator.py
 import json
 import os
+import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from litellm import completion
+import tracing
 from agents.prompts import ORCHESTRATOR_SYSTEM_PROMPT
 from tools.profile import read_profile, update_profile
 from tools.state import (
@@ -243,7 +245,7 @@ TOOL_DEFINITIONS = [
 MAX_TOOL_RESULT_CHARS = 4000
 
 
-def _dispatch(name: str, args: dict) -> str:
+def _dispatch(name: str, args: dict, turn_id: str | None = None) -> str:
     try:
         if name == "read_profile":
             p = read_profile()
@@ -291,6 +293,7 @@ def _dispatch(name: str, args: dict) -> str:
                 query=args["query"],
                 count=args.get("count", 3),
                 profile=read_profile(),
+                parent_turn_id=turn_id,
             )
             return json.dumps(result)
         if name == "update_recipe":
@@ -404,6 +407,25 @@ def _trim_history(history: list[dict]) -> list[dict]:
 
 # --- Public API ---
 
+def _run_one(tc, turn_id: str) -> dict:
+    try:
+        args = json.loads(tc.function.arguments or "{}")
+    except json.JSONDecodeError:
+        args = {}
+    t0 = time.monotonic()
+    result = _dispatch(tc.function.name, args, turn_id)
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    tracing.record_tool_call(turn_id, tc.function.name, args, len(result), elapsed_ms)
+    if len(result) > MAX_TOOL_RESULT_CHARS:
+        result = result[:MAX_TOOL_RESULT_CHARS] + " ...(truncated)"
+    return {
+        "role": "tool",
+        "tool_call_id": tc.id,
+        "name": tc.function.name,
+        "content": result,
+    }
+
+
 def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
     """Run one conversational turn. Returns (assistant text, updated history).
 
@@ -411,71 +433,70 @@ def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
     """
     snapshot_for_undo()
     history = _trim_history(history)
+    turn_id = tracing.start_turn(user_message)
     messages = (
         [{"role": "system", "content": _build_system_prompt()}]
         + history
         + [{"role": "user", "content": user_message}]
     )
 
-    for iteration in range(MAX_TOOL_ITERATIONS):
-        response = completion(
-            model=MODEL,
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            max_tokens=4096,
-        )
-        choice = response.choices[0]
-        msg = choice.message
-        tool_calls = getattr(msg, "tool_calls", None) or []
+    try:
+        for iteration in range(MAX_TOOL_ITERATIONS):
+            t0 = time.monotonic()
+            response = completion(
+                model=MODEL,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                max_tokens=4096,
+            )
+            tracing.record_completion(turn_id, response, (time.monotonic() - t0) * 1000)
 
-        assistant_entry = {
-            "role": "assistant",
-            "content": msg.content or "",
-        }
-        if tool_calls:
-            assistant_entry["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in tool_calls
-            ]
-        messages.append(assistant_entry)
+            choice = response.choices[0]
+            msg = choice.message
+            tool_calls = getattr(msg, "tool_calls", None) or []
 
-        if not tool_calls:
-            return ((msg.content or "").strip(), messages[1:])  # drop system
-
-        if iteration > 0:
-            import time
-            time.sleep(2)
-
-        def _run_one(tc):
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            result = _dispatch(tc.function.name, args)
-            if len(result) > MAX_TOOL_RESULT_CHARS:
-                result = result[:MAX_TOOL_RESULT_CHARS] + " ...(truncated)"
-            return {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "name": tc.function.name,
-                "content": result,
+            assistant_entry = {
+                "role": "assistant",
+                "content": msg.content or "",
             }
+            if tool_calls:
+                assistant_entry["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_entry)
 
-        if len(tool_calls) == 1:
-            messages.append(_run_one(tool_calls[0]))
-        else:
-            results: list[dict] = []
-            with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
-                futures = {pool.submit(_run_one, tc): tc for tc in tool_calls}
-                for future in as_completed(futures):
-                    results.append(future.result())
-            # Order results to match tool_calls order (required by API)
-            id_order = {tc.id: i for i, tc in enumerate(tool_calls)}
-            results.sort(key=lambda r: id_order[r["tool_call_id"]])
-            messages.extend(results)
+            if not tool_calls:
+                final_text = (msg.content or "").strip()
+                tracing.end_turn(turn_id, final_text, messages)
+                return (final_text, messages[1:])
 
-    return ("(tool loop limit hit — simplify your request)", messages[1:])
+            if iteration > 0:
+                time.sleep(2)
+
+            if len(tool_calls) == 1:
+                messages.append(_run_one(tool_calls[0], turn_id))
+            else:
+                results: list[dict] = []
+                with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
+                    futures = {pool.submit(_run_one, tc, turn_id): tc for tc in tool_calls}
+                    for future in as_completed(futures):
+                        results.append(future.result())
+                id_order = {tc.id: i for i, tc in enumerate(tool_calls)}
+                results.sort(key=lambda r: id_order[r["tool_call_id"]])
+                messages.extend(results)
+
+        final_text = "(tool loop limit hit — simplify your request)"
+        tracing.end_turn(turn_id, final_text, messages)
+        return (final_text, messages[1:])
+    except Exception:
+        # Make sure the trace is closed even on a hard failure.
+        try:
+            tracing.end_turn(turn_id, "(error)", messages)
+        except Exception:
+            pass
+        raise

@@ -50,3 +50,12 @@ def test_update_recipe_drops_immutable_fields(tmp_path, monkeypatch):
     assert persisted[0].id == "salmon-bowls"
     assert persisted[0].added_at == datetime(2026, 5, 3)
     assert persisted[0].cuisine == "japanese"  # mutable change still applied
+
+
+def test_update_recipe_invalid_type_raises(tmp_path, monkeypatch):
+    from pydantic import ValidationError
+
+    _seed(tmp_path, monkeypatch, [_r("salmon-bowls")])
+
+    with pytest.raises(ValidationError):
+        recipes_mod.update_recipe("salmon-bowls", {"cook_time_min": "twenty"})

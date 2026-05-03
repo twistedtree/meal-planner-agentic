@@ -61,3 +61,52 @@ def last_turn_summary() -> dict | None:
             return json.loads(last)
     except Exception:
         return None
+
+
+def record_completion(turn_id: str, response: Any, latency_ms: float) -> None:
+    try:
+        with _lock:
+            t = _turns.get(turn_id)
+            if t is None:
+                return
+            t["n_llm_calls"] += 1
+            t["latency_ms"] += float(latency_ms or 0)
+            model = getattr(response, "model", None)
+            if model:
+                t["model"] = model
+            usage = getattr(response, "usage", None)
+            if usage is None:
+                return
+            p = int(getattr(usage, "prompt_tokens", 0) or 0)
+            c = int(getattr(usage, "completion_tokens", 0) or 0)
+            tot = int(getattr(usage, "total_tokens", p + c) or (p + c))
+            t["prompt_tokens"] += p
+            t["completion_tokens"] += c
+            t["total_tokens"] += tot
+    except Exception:
+        return
+
+
+def _digest_args(args: Any, max_len: int = 200) -> str:
+    try:
+        s = json.dumps(args, default=str, separators=(",", ":"))
+    except Exception:
+        s = str(args)
+    return s if len(s) <= max_len else s[: max_len - 1] + "…"
+
+
+def record_tool_call(turn_id: str, name: str, args: Any,
+                     result_chars: int, ms: float) -> None:
+    try:
+        with _lock:
+            t = _turns.get(turn_id)
+            if t is None:
+                return
+            t["tool_calls"].append({
+                "name": name,
+                "args_digest": _digest_args(args),
+                "result_chars": int(result_chars),
+                "ms": float(ms),
+            })
+    except Exception:
+        return

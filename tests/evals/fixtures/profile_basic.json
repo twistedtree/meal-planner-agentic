@@ -1,0 +1,13 @@
+{
+  "household_size": 4,
+  "members": [
+    {"name": "Adult1", "is_adult": true, "dislikes": []},
+    {"name": "Adult2", "is_adult": true, "dislikes": []},
+    {"name": "Kid1", "is_adult": false, "dislikes": ["mushrooms"]},
+    {"name": "Kid2", "is_adult": false, "dislikes": []}
+  ],
+  "household_dislikes": ["mushrooms"],
+  "dietary_rules": [">=1 fish meal per week", "every meal includes a vegetable"],
+  "preferred_cuisines": ["japanese", "italian", "thai"],
+  "notes": "kids prefer mild spice"
+}

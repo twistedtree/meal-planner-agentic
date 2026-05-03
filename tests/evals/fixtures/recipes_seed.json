@@ -1,0 +1,30 @@
+[
+  {
+    "id": "salmon-teriyaki-bowls",
+    "title": "Salmon teriyaki bowls",
+    "cuisine": "unknown",
+    "main_protein": "salmon",
+    "key_ingredients": ["salmon", "broccoli", "rice", "soy"],
+    "tags": ["quick"],
+    "cook_time_min": 25,
+    "times_cooked": 3,
+    "avg_rating": 4.5,
+    "source": "manual",
+    "added_at": "2026-04-01T12:00:00",
+    "notes": ""
+  },
+  {
+    "id": "ratatouille",
+    "title": "Ratatouille",
+    "cuisine": "french",
+    "main_protein": "vegetarian",
+    "key_ingredients": ["zucchini", "eggplant", "tomato", "bell pepper"],
+    "tags": ["one-pan"],
+    "cook_time_min": 45,
+    "times_cooked": 1,
+    "avg_rating": 4.0,
+    "source": "manual",
+    "added_at": "2026-04-08T12:00:00",
+    "notes": ""
+  }
+]

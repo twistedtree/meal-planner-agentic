@@ -4,6 +4,10 @@ Chat-driven weekly dinner planner. Talk to an agent; it maintains your meal plan
 
 See [design spec](docs/superpowers/specs/2026-04-15-meal-planner-agentic-design.md).
 
+Project docs (BRD / PRD / BUILD_SPEC / architecture.yaml / features plan) live at
+`../docs/meal-planner-agentic/` (separated from the app tree so they sit alongside
+docs for other projects in `05-projects/docs/`).
+
 ## Setup
 
 ```bash
@@ -55,9 +59,15 @@ Sidebar shows the last turn's cost. `traces/` is gitignored.
 
 ## Project docs
 
-- `docs/BRD.md` — business requirements
-- `docs/PRD.md` — product capabilities (current state)
-- `docs/BUILD_SPEC.md` — current implementation
-- `docs/architecture.yaml` — machine-readable architecture (source of truth for `BUILD_SPEC.md`)
+Top-level project docs sit one level up at `../docs/meal-planner-agentic/`:
+
+- `../docs/meal-planner-agentic/BRD.md` — business requirements + roadmap (Done, in-progress, Tier-1 planned, Tier-2 deferred, killed)
+- `../docs/meal-planner-agentic/PRD.md` — product capabilities (1–9 current; 10–14 planned)
+- `../docs/meal-planner-agentic/BUILD_SPEC.md` — current implementation + planned components/tools
+- `../docs/meal-planner-agentic/architecture.yaml` — machine-readable architecture (current + planned)
+- `../docs/meal-planner-agentic/meal-planner-plan.md` — long-form features plan (Tier 1/2/3 vision)
+
+Sub-project specs and plans live with the app:
+
 - `docs/superpowers/specs/` — per-sub-project design specs
 - `docs/superpowers/plans/` — per-sub-project implementation plans

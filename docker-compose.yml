@@ -4,7 +4,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./state:/app/state
+      - ../docker_data/meal-planner/state:/app/state
+      - ../docker_data/meal-planner/traces:/app/traces
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - ORCHESTRATOR_MODEL=${ORCHESTRATOR_MODEL:-openrouter/anthropic/claude-sonnet-4.5}

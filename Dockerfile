@@ -12,10 +12,10 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY agents/ agents/
 COPY tools/ tools/
-COPY app.py models.py storage.py ./
+COPY app.py models.py storage.py tracing.py ./
 
-# State directory (mount as volume for persistence)
-RUN mkdir -p /app/state
+# State and traces directories (mount as volumes for persistence)
+RUN mkdir -p /app/state /app/traces
 
 EXPOSE 8501
 

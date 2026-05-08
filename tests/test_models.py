@@ -121,3 +121,27 @@ def test_recipe_notes_round_trips():
     j = r.model_dump_json()
     r2 = Recipe.model_validate_json(j)
     assert r2.notes == "great with brown rice"
+
+
+def test_pantry_item_minimal():
+    from models import PantryItem
+    p = PantryItem(name="rice")
+    assert p.name == "rice"
+    assert p.quantity is None
+    assert p.expiry_at is None
+
+
+def test_pantry_item_full():
+    from datetime import date
+    from models import PantryItem
+    p = PantryItem(name="salmon", quantity="280g", expiry_at=date(2026, 5, 7))
+    assert p.quantity == "280g"
+    assert p.expiry_at == date(2026, 5, 7)
+
+
+def test_one_off_meal_minimal():
+    from datetime import datetime
+    from models import OneOffMeal
+    m = OneOffMeal(recipe_title="Pasta al Pomodoro", cooked_at=datetime(2026, 5, 5, 19, 0))
+    assert m.members == []
+    assert m.time_min is None

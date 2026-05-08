@@ -3,6 +3,19 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class PantryItem(BaseModel):
+    name: str
+    quantity: str | None = None
+    expiry_at: date | None = None
+
+
+class OneOffMeal(BaseModel):
+    recipe_title: str
+    cooked_at: datetime
+    members: list[str] = Field(default_factory=list)
+    time_min: int | None = None
+
+
 class Member(BaseModel):
     name: str
     is_adult: bool

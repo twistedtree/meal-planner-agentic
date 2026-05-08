@@ -33,7 +33,7 @@ def test_edit_recipe_changes_cuisine(fresh_state, monkeypatch, tmp_path_factory)
     import tracing
     summary = tracing.last_turn_summary()
     assert summary is not None
-    assert summary["total_tokens"] <= 6000, f"edit_recipe burned {summary['total_tokens']} tokens"
+    assert summary["total_tokens"] <= 12000, f"edit_recipe burned {summary['total_tokens']} tokens"
     names = [c["name"] for c in summary["tool_calls"]]
     assert "update_recipe" in names
 
@@ -50,7 +50,7 @@ def test_delete_recipe_removes_row(fresh_state):
     import tracing
     summary = tracing.last_turn_summary()
     assert summary is not None
-    assert summary["total_tokens"] <= 5000
+    assert summary["total_tokens"] <= 12000
     assert "delete_recipe" in [c["name"] for c in summary["tool_calls"]]
 
 

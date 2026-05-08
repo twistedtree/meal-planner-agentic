@@ -64,6 +64,7 @@ The `:online` suffix on the Recipe finder model routes web search via Exa throug
 - **2-second pause between tool iterations.** Hardcoded `time.sleep(2)` after iteration 0. Rate-limit avoidance, not a UX choice.
 - **No em-dashes anywhere** (Miguel's repo-wide rule). Use commas, semicolons, colons, parentheses, hyphens, periods.
 - **Windows + uv only.** Never invoke bare `python`; always `uv run python` for ad-hoc scripts. PowerShell has no `&&`/`||` chaining.
+- **AVG / Avast `SSLKEYLOGFILE` crashes the SSL stack.** AVG sets `SSLKEYLOGFILE=\\.\avgMonFltPro...` system-wide so its kernel driver can MitM TLS. Python honoring that path loads System32's LibreSSL `libcrypto.dll`, which lacks `OPENSSL_Applink` and aborts the process the moment any module triggers SSL (`import litellm`, `import aiohttp` in 3.13.x, etc). Top-level `conftest.py` and the bootstrap at the top of `app.py` pop the env var when it points at an AV-style device path. Don't remove either guard. If you see `OPENSSL_Uplink ... no OPENSSL_Applink`, check `$env:SSLKEYLOGFILE` first.
 
 ## Adding a new tool
 

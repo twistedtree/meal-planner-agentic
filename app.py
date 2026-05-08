@@ -1,5 +1,14 @@
 # app.py
 import os
+
+# AVG / Avast point SSLKEYLOGFILE at a kernel filter-driver device path
+# (e.g. \\.\avgMonFltPro), which crashes Python's SSL stack with
+# "OPENSSL_Uplink ... no OPENSSL_Applink" via System32's LibreSSL. Drop
+# only AV-style paths; a real file path stays untouched.
+_keylog = os.environ.get("SSLKEYLOGFILE", "")
+if _keylog.startswith("\\\\.\\") or "avgMon" in _keylog or "avast" in _keylog.lower():
+    os.environ.pop("SSLKEYLOGFILE", None)
+
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st

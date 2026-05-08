@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PantryItem(BaseModel):
@@ -75,7 +75,18 @@ class State(BaseModel):
     meal_plan: list[MealPlanSlot] = Field(default_factory=list)
     week_of: date | None = None
     plan_history: list[ArchivedPlan] = Field(default_factory=list)
-    pantry: list[str] = Field(default_factory=list)
+    pantry: list[PantryItem] = Field(default_factory=list)
     ratings: list[Rating] = Field(default_factory=list)
     tonight_history: list[OneOffMeal] = Field(default_factory=list)
     last_updated: datetime
+
+    @field_validator("pantry", mode="before")
+    @classmethod
+    def _coerce_legacy_pantry(cls, v):
+        """Coerce bare-string pantry entries to PantryItem dicts."""
+        if not isinstance(v, list):
+            return v
+        return [
+            {"name": x} if isinstance(x, str) else x
+            for x in v
+        ]

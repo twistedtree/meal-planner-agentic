@@ -77,7 +77,7 @@ def _render_sidebar():
         st.subheader("Pantry")
         s = read_state()
         if s.pantry:
-            st.write(" · ".join(s.pantry))
+            st.write(" · ".join(p.name for p in s.pantry))
         else:
             st.caption("(empty)")
 

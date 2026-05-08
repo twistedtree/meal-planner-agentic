@@ -80,3 +80,24 @@ def test_update_plan_real_week_change_still_archives(tmp_state_dir):
     s = update_plan(WEEK_2_SLOTS, week_of=date(2026, 5, 19))
     assert len(s.plan_history) == 1
     assert s.plan_history[0].week_of == date(2026, 5, 12)
+
+
+def test_update_pantry_concurrent_writes_dont_lose_items(tmp_state_dir):
+    """Concurrent update_pantry calls must not drop items.
+
+    Without a state-level lock the read-modify-write window in update_pantry
+    races: thread A reads pantry=[], adds X, writes; meanwhile thread B reads
+    pantry=[] (stale), adds Y, writes — overwriting A's item. Hardens
+    state.py against the same hazard already protected in tools/recipes.py.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from tools.state import update_pantry
+
+    N = 50
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(lambda i: update_pantry(add=[f"item_{i:02d}"]), range(N)))
+
+    s = read_state()
+    names = {p.name for p in s.pantry}
+    missing = {f"item_{i:02d}" for i in range(N)} - names
+    assert not missing, f"{len(missing)} items lost to RMW race: {sorted(missing)[:5]}..."

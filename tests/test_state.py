@@ -54,3 +54,29 @@ def test_update_plan_keeps_max_4_weeks(tmp_state_dir):
 def test_update_plan_week_of_none_by_default(tmp_state_dir):
     s = update_plan(WEEK_1_SLOTS)
     assert s.week_of is None
+
+
+def test_update_plan_same_week_does_not_archive(tmp_state_dir):
+    """Iterating on the same week's plan must not archive earlier drafts.
+
+    Otherwise validate_plan Rule 5 ("served last week") fires against an
+    earlier draft of the SAME week the user is still editing — the bug
+    behind issue #1.
+    """
+    update_plan(WEEK_1_SLOTS, week_of=date(2026, 5, 12))
+    revised = [_slot(d, f"Week1-revised-{d}") for d in ["Mon", "Tue", "Wed", "Thu", "Fri"]]
+    s = update_plan(revised, week_of=date(2026, 5, 12))
+    assert s.plan_history == [], (
+        "same-week resave should not archive — would feed validate_plan a "
+        "phantom 'last week' that's actually an earlier draft"
+    )
+    # current plan reflects the revision
+    assert [slot.recipe_title for slot in s.meal_plan] == [f"Week1-revised-{d}" for d in ["Mon","Tue","Wed","Thu","Fri"]]
+
+
+def test_update_plan_real_week_change_still_archives(tmp_state_dir):
+    """Sanity: the same-week guard must not break legitimate week transitions."""
+    update_plan(WEEK_1_SLOTS, week_of=date(2026, 5, 12))
+    s = update_plan(WEEK_2_SLOTS, week_of=date(2026, 5, 19))
+    assert len(s.plan_history) == 1
+    assert s.plan_history[0].week_of == date(2026, 5, 12)

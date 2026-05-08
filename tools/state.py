@@ -17,9 +17,13 @@ def read_state() -> State:
 
 
 def update_plan(slots: list[dict], week_of: date | None = None) -> State:
-    """Replace meal_plan wholesale. Archives the previous plan if it had a week_of."""
+    """Replace meal_plan wholesale. Archive the previous plan to plan_history
+    only when crossing into a different week — same-week resaves overwrite in
+    place so validate_plan Rule 5 does not flag earlier drafts as "last week"
+    (issue #1).
+    """
     s = read_state()
-    if s.meal_plan and s.week_of is not None:
+    if s.meal_plan and s.week_of is not None and s.week_of != week_of:
         s.plan_history.append(ArchivedPlan(week_of=s.week_of, slots=s.meal_plan))
         s.plan_history = s.plan_history[-4:]
     s.meal_plan = [MealPlanSlot.model_validate(slot) for slot in slots]

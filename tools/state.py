@@ -1,6 +1,6 @@
 # tools/state.py
 from datetime import datetime, date
-from models import State, MealPlanSlot, Rating, ArchivedPlan
+from models import State, MealPlanSlot, Rating, ArchivedPlan, PantryItem
 from storage import load_json, save_json, STATE_DIR
 
 
@@ -29,15 +29,43 @@ def update_plan(slots: list[dict], week_of: date | None = None) -> State:
     return s
 
 
-def update_pantry(add: list[str] | None = None, remove: list[str] | None = None) -> State:
-    """Apply a diff to the pantry. Items are normalised to lowercase, stripped."""
+def update_pantry(
+    add: list[str | dict] | None = None,
+    remove: list[str] | None = None,
+) -> State:
+    """Apply a diff to the pantry.
+
+    `add` accepts bare strings or {name, quantity?, expiry_at?} dicts.
+    Dedupe key is name.lower().strip(). On collision, non-None quantity /
+    expiry_at from the new entry overwrite the existing values; bare-name
+    re-adds preserve existing quantity / expiry_at.
+    `remove` is a list of names; case-insensitive exact match.
+    """
     s = read_state()
-    current = {p.lower().strip() for p in s.pantry}
-    for item in (add or []):
-        current.add(item.lower().strip())
-    for item in (remove or []):
-        current.discard(item.lower().strip())
-    s.pantry = sorted(current)
+    by_name: dict[str, PantryItem] = {
+        p.name.lower().strip(): p for p in s.pantry
+    }
+
+    for entry in (add or []):
+        if isinstance(entry, str):
+            new = PantryItem(name=entry.strip())
+        else:
+            new = PantryItem.model_validate(entry)
+        key = new.name.lower().strip()
+        if key in by_name:
+            existing = by_name[key]
+            merged = existing.model_copy(update={
+                "quantity": new.quantity if new.quantity is not None else existing.quantity,
+                "expiry_at": new.expiry_at if new.expiry_at is not None else existing.expiry_at,
+            })
+            by_name[key] = merged
+        else:
+            by_name[key] = new
+
+    for name in (remove or []):
+        by_name.pop(name.lower().strip(), None)
+
+    s.pantry = sorted(by_name.values(), key=lambda p: p.name.lower())
     s.last_updated = _now()
     save_json("state.json", s)
     return s

@@ -61,3 +61,55 @@ def test_pantry_round_trip_normalises_to_dicts(tmp_path, monkeypatch):
     assert raw["pantry"] == [
         {"name": "rice", "quantity": None, "expiry_at": None},
     ]
+
+
+def _fresh_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, "STATE_DIR", tmp_path)
+
+
+def test_update_pantry_accepts_bare_string(tmp_path, monkeypatch):
+    _fresh_state(tmp_path, monkeypatch)
+    s = state_mod.update_pantry(add=["rice"])
+    assert s.pantry == [PantryItem(name="rice")]
+
+
+def test_update_pantry_accepts_dict(tmp_path, monkeypatch):
+    _fresh_state(tmp_path, monkeypatch)
+    s = state_mod.update_pantry(add=[{
+        "name": "salmon", "quantity": "280g", "expiry_at": "2026-05-07",
+    }])
+    assert s.pantry[0].name == "salmon"
+    assert s.pantry[0].quantity == "280g"
+    assert s.pantry[0].expiry_at == date(2026, 5, 7)
+
+
+def test_update_pantry_dedupe_overwrites_quantity(tmp_path, monkeypatch):
+    _fresh_state(tmp_path, monkeypatch)
+    state_mod.update_pantry(add=["rice"])
+    s = state_mod.update_pantry(add=[{"name": "rice", "quantity": "1 bag"}])
+    assert len(s.pantry) == 1
+    assert s.pantry[0].quantity == "1 bag"
+
+
+def test_update_pantry_dedupe_keeps_later_expiry(tmp_path, monkeypatch):
+    _fresh_state(tmp_path, monkeypatch)
+    state_mod.update_pantry(add=[{"name": "salmon", "expiry_at": "2026-05-07"}])
+    s = state_mod.update_pantry(add=[{"name": "salmon", "expiry_at": "2026-05-09"}])
+    assert len(s.pantry) == 1
+    assert s.pantry[0].expiry_at == date(2026, 5, 9)
+
+
+def test_update_pantry_remove_case_insensitive(tmp_path, monkeypatch):
+    _fresh_state(tmp_path, monkeypatch)
+    state_mod.update_pantry(add=["Salmon"])
+    s = state_mod.update_pantry(remove=["salmon"])
+    assert s.pantry == []
+
+
+def test_update_pantry_dedupe_does_not_clear_quantity(tmp_path, monkeypatch):
+    """Adding a bare name when an item with quantity already exists must not wipe quantity."""
+    _fresh_state(tmp_path, monkeypatch)
+    state_mod.update_pantry(add=[{"name": "salmon", "quantity": "280g"}])
+    s = state_mod.update_pantry(add=["salmon"])
+    assert len(s.pantry) == 1
+    assert s.pantry[0].quantity == "280g"

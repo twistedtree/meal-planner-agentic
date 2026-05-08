@@ -122,11 +122,32 @@ TOOL_DEFINITIONS = [
               "required": ["slots", "week_of"],
           }),
     _tool("update_pantry",
-          "Add/remove perishables in the pantry. In/out only (no quantities).",
+          "Add or remove perishables in the pantry. Items can be bare names or "
+          "objects with optional quantity (free text, e.g. '250g') and expiry_at "
+          "(ISO date YYYY-MM-DD).",
           {
               "type": "object",
               "properties": {
-                  "add": {"type": "array", "items": {"type": "string"}},
+                  "add": {
+                      "type": "array",
+                      "items": {
+                          "anyOf": [
+                              {"type": "string"},
+                              {
+                                  "type": "object",
+                                  "properties": {
+                                      "name":      {"type": "string"},
+                                      "quantity":  {"type": ["string", "null"]},
+                                      "expiry_at": {
+                                          "type": ["string", "null"],
+                                          "description": "ISO date YYYY-MM-DD",
+                                      },
+                                  },
+                                  "required": ["name"],
+                              },
+                          ],
+                      },
+                  },
                   "remove": {"type": "array", "items": {"type": "string"}},
               },
               "required": [],

@@ -380,7 +380,15 @@ def _state_summary() -> str:
         if s.meal_plan else "(no plan set)"
     )
     week_label = f"Week of {s.week_of.isoformat()}" if s.week_of else "(no week set)"
-    pantry = ", ".join(s.pantry) if s.pantry else "(empty)"
+    def _render_item(p) -> str:
+        bits = []
+        if p.quantity is not None:
+            bits.append(p.quantity)
+        if p.expiry_at is not None:
+            bits.append(f"exp {p.expiry_at.isoformat()}")
+        return f"{p.name} ({', '.join(bits)})" if bits else p.name
+
+    pantry = ", ".join(_render_item(p) for p in s.pantry) if s.pantry else "(empty)"
     n_ratings = len(s.ratings)
 
     parts = [

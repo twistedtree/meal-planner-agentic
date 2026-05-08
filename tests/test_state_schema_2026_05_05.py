@@ -113,3 +113,21 @@ def test_update_pantry_dedupe_does_not_clear_quantity(tmp_path, monkeypatch):
     s = state_mod.update_pantry(add=["salmon"])
     assert len(s.pantry) == 1
     assert s.pantry[0].quantity == "280g"
+
+
+def test_state_summary_renders_pantry_shapes(tmp_path, monkeypatch):
+    """Pantry rendering: bare name, name + qty, name + expiry, name + both."""
+    monkeypatch.setattr(storage, "STATE_DIR", tmp_path)
+    state_mod.update_pantry(add=[
+        "rice",
+        {"name": "salmon", "quantity": "280g", "expiry_at": "2026-05-07"},
+        {"name": "lemons", "quantity": "x4"},
+        {"name": "yoghurt", "expiry_at": "2026-05-09"},
+    ])
+
+    from agents.orchestrator import _state_summary
+    summary = _state_summary()
+    assert "rice" in summary
+    assert "salmon (280g, exp 2026-05-07)" in summary
+    assert "lemons (x4)" in summary
+    assert "yoghurt (exp 2026-05-09)" in summary

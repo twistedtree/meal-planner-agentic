@@ -1,13 +1,21 @@
 # app.py
 import os
 
-# AVG / Avast point SSLKEYLOGFILE at a kernel filter-driver device path
-# (e.g. \\.\avgMonFltPro), which crashes Python's SSL stack with
-# "OPENSSL_Uplink ... no OPENSSL_Applink" via System32's LibreSSL. Drop
-# only AV-style paths; a real file path stays untouched.
+# AVG / Avast workarounds (see conftest.py for full background):
+#  - SSLKEYLOGFILE pointed at a kernel device path crashes the SSL stack
+#    via System32's LibreSSL (OPENSSL_Applink abort).
+#  - AVG MitMs outbound TLS with its own root CA, which lives in Windows'
+#    cert store but not certifi's bundle, so libraries that pin certifi
+#    (httpx, litellm, ...) fail with CERTIFICATE_VERIFY_FAILED. truststore
+#    routes Python ssl through the Windows store.
 _keylog = os.environ.get("SSLKEYLOGFILE", "")
 if _keylog.startswith("\\\\.\\") or "avgMon" in _keylog or "avast" in _keylog.lower():
     os.environ.pop("SSLKEYLOGFILE", None)
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
 
 from datetime import date, timedelta
 import pandas as pd

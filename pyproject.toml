@@ -10,6 +10,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pandas>=2.0.0",
     "cookidoo-api>=0.17.0",
+    # Routes Python ssl through the OS cert store. Used on Windows when AVG /
+    # Avast MitMs outbound TLS with a root that is in Windows' store but not
+    # in certifi (see conftest.py / app.py bootstrap). No-op on Linux/Docker.
+    "truststore>=0.10.0",
 ]
 
 [project.optional-dependencies]

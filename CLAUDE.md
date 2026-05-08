@@ -64,7 +64,11 @@ The `:online` suffix on the Recipe finder model routes web search via Exa throug
 - **2-second pause between tool iterations.** Hardcoded `time.sleep(2)` after iteration 0. Rate-limit avoidance, not a UX choice.
 - **No em-dashes anywhere** (Miguel's repo-wide rule). Use commas, semicolons, colons, parentheses, hyphens, periods.
 - **Windows + uv only.** Never invoke bare `python`; always `uv run python` for ad-hoc scripts. PowerShell has no `&&`/`||` chaining.
-- **AVG / Avast `SSLKEYLOGFILE` crashes the SSL stack.** AVG sets `SSLKEYLOGFILE=\\.\avgMonFltPro...` system-wide so its kernel driver can MitM TLS. Python honoring that path loads System32's LibreSSL `libcrypto.dll`, which lacks `OPENSSL_Applink` and aborts the process the moment any module triggers SSL (`import litellm`, `import aiohttp` in 3.13.x, etc). Top-level `conftest.py` and the bootstrap at the top of `app.py` pop the env var when it points at an AV-style device path. Don't remove either guard. If you see `OPENSSL_Uplink ... no OPENSSL_Applink`, check `$env:SSLKEYLOGFILE` first.
+- **AVG / Avast TLS interception (two-part workaround).** AVG sets `SSLKEYLOGFILE=\\.\avgMonFltPro...` system-wide and MitMs outbound TLS with its own root CA. That breaks Python in two ways:
+  1. Honoring the device-path keylog file loads System32's LibreSSL `libcrypto.dll`, which lacks `OPENSSL_Applink` and aborts the process the moment any module imports `ssl` (`import litellm`, `import aiohttp` in 3.13.x, etc).
+  2. AVG's root CA lives in Windows' cert store but not in certifi's bundle, so libraries that pin certifi (httpx, litellm) fail with `CERTIFICATE_VERIFY_FAILED` on every outbound call.
+
+  Top-level `conftest.py` and the bootstrap at the top of `app.py` pop the env var **and** call `truststore.inject_into_ssl()` to route Python's `ssl` through the Windows cert store. Both fire only when AV markers are detected (no-op on Linux/Docker). Don't remove either half. If you see `OPENSSL_Uplink ... no OPENSSL_Applink`, check `$env:SSLKEYLOGFILE` first; if you see `CERTIFICATE_VERIFY_FAILED`, confirm the bootstrap ran (`truststore` not installed = no-op).
 
 ## Adding a new tool
 

@@ -455,6 +455,48 @@ def _run_one(tc, turn_id: str) -> dict:
     }
 
 
+# Tools that mutate persistent state. When the LLM emits multiple tool_calls
+# in one assistant message, these are dispatched sequentially (in declaration
+# order) so a `read_state -> mutate -> save_json` window cannot interleave
+# with another mutator's window. Read-only tools still run in parallel.
+MUTATING_TOOLS = frozenset({
+    "update_plan", "update_pantry", "update_profile",
+    "update_recipe", "delete_recipe", "record_rating",
+})
+
+
+def _run_tool_calls(tool_calls, turn_id: str) -> list[dict]:
+    """Dispatch a batch of tool_calls.
+
+    Single call: just run it. Multiple calls: mutating tools run sequentially
+    in their original order to avoid the read-modify-write race on JSON state
+    files; read-only tools run in parallel via ThreadPoolExecutor. Results
+    are returned in the same order as the input tool_calls so the OpenAI
+    tool_call_id order is preserved on the next LLM turn.
+    """
+    if not tool_calls:
+        return []
+    if len(tool_calls) == 1:
+        return [_run_one(tool_calls[0], turn_id)]
+
+    results: dict[str, dict] = {}
+    read_only = [tc for tc in tool_calls if tc.function.name not in MUTATING_TOOLS]
+    mutating = [tc for tc in tool_calls if tc.function.name in MUTATING_TOOLS]
+
+    # Sequential mutators in declaration order (later calls see earlier writes).
+    for tc in mutating:
+        results[tc.id] = _run_one(tc, turn_id)
+
+    # Read-only tools fan out concurrently.
+    if read_only:
+        with ThreadPoolExecutor(max_workers=len(read_only)) as pool:
+            futures = {pool.submit(_run_one, tc, turn_id): tc.id for tc in read_only}
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+
+    return [results[tc.id] for tc in tool_calls]
+
+
 def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
     """Run one conversational turn. Returns (assistant text, updated history).
 
@@ -507,17 +549,7 @@ def run_turn(user_message: str, history: list[dict]) -> tuple[str, list[dict]]:
             if iteration > 0:
                 time.sleep(2)
 
-            if len(tool_calls) == 1:
-                messages.append(_run_one(tool_calls[0], turn_id))
-            else:
-                results: list[dict] = []
-                with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
-                    futures = {pool.submit(_run_one, tc, turn_id): tc for tc in tool_calls}
-                    for future in as_completed(futures):
-                        results.append(future.result())
-                id_order = {tc.id: i for i, tc in enumerate(tool_calls)}
-                results.sort(key=lambda r: id_order[r["tool_call_id"]])
-                messages.extend(results)
+            messages.extend(_run_tool_calls(tool_calls, turn_id))
 
         final_text = "(tool loop limit hit — simplify your request)"
         tracing.end_turn(turn_id, final_text, messages)

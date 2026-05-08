@@ -44,7 +44,7 @@ def test_save_overwrites_cleanly(tmp_state_dir):
     save_json("state.json", s1)
     save_json("state.json", s2)
     loaded = load_json("state.json", State)
-    assert loaded.pantry == ["milk"]
+    assert [p.name for p in loaded.pantry] == ["milk"]
 
 
 def test_load_returns_typed_model(tmp_state_dir):

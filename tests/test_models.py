@@ -145,3 +145,41 @@ def test_one_off_meal_minimal():
     m = OneOffMeal(recipe_title="Pasta al Pomodoro", cooked_at=datetime(2026, 5, 5, 19, 0))
     assert m.members == []
     assert m.time_min is None
+
+
+def test_profile_defaults_household_id():
+    p = Profile(
+        household_size=1,
+        members=[Member(name="Miguel", is_adult=True)],
+    )
+    assert p.household_id == "default"
+
+
+def test_profile_loads_legacy_without_household_id():
+    """A profile.json written before this schema bump must load unchanged."""
+    import json
+    legacy = json.dumps({
+        "household_size": 4,
+        "members": [
+            {"name": "Miguel", "is_adult": True, "dislikes": []},
+            {"name": "K", "is_adult": True, "dislikes": []},
+        ],
+        "household_dislikes": [],
+        "dietary_rules": [],
+        "preferred_cuisines": [],
+        "notes": "",
+    })
+    p = Profile.model_validate_json(legacy)
+    assert p.household_id == "default"
+    assert p.household_size == 4
+
+
+def test_profile_round_trips_household_id():
+    p = Profile(
+        household_id="m-family",
+        household_size=2,
+        members=[Member(name="A", is_adult=True), Member(name="B", is_adult=True)],
+    )
+    j = p.model_dump_json()
+    p2 = Profile.model_validate_json(j)
+    assert p2.household_id == "m-family"

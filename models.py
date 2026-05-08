@@ -23,6 +23,7 @@ class Member(BaseModel):
 
 
 class Profile(BaseModel):
+    household_id: str = "default"
     household_size: int
     members: list[Member]
     household_dislikes: list[str] = Field(default_factory=list)

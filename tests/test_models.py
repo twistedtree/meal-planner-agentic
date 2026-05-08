@@ -183,3 +183,25 @@ def test_profile_round_trips_household_id():
     j = p.model_dump_json()
     p2 = Profile.model_validate_json(j)
     assert p2.household_id == "m-family"
+
+
+def test_state_defaults_household_id_and_tonight_history():
+    s = State(last_updated=datetime(2026, 5, 5, 19, 0))
+    assert s.household_id == "default"
+    assert s.tonight_history == []
+
+
+def test_state_loads_legacy_without_new_fields():
+    """A state.json from before this schema bump must load unchanged."""
+    import json
+    legacy = json.dumps({
+        "meal_plan": [],
+        "week_of": None,
+        "plan_history": [],
+        "pantry": [],
+        "ratings": [],
+        "last_updated": "2026-05-04T12:00:00",
+    })
+    s = State.model_validate_json(legacy)
+    assert s.household_id == "default"
+    assert s.tonight_history == []

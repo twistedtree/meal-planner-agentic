@@ -71,9 +71,11 @@ class ArchivedPlan(BaseModel):
 
 
 class State(BaseModel):
+    household_id: str = "default"
     meal_plan: list[MealPlanSlot] = Field(default_factory=list)
     week_of: date | None = None
     plan_history: list[ArchivedPlan] = Field(default_factory=list)
     pantry: list[str] = Field(default_factory=list)
     ratings: list[Rating] = Field(default_factory=list)
+    tonight_history: list[OneOffMeal] = Field(default_factory=list)
     last_updated: datetime

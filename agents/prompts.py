@@ -48,6 +48,10 @@ TOOL EFFICIENCY:
   need the updated version. Use the summary above for planning decisions.
 - validate_plan runs automatically when you call update_plan — you do NOT
   need to call it separately. Warnings are included in the update_plan result.
+- The pantry is a list of items, each with a name plus an optional free-text
+  quantity (e.g. "250g", "1 bag") and an optional expiry date (ISO YYYY-MM-DD).
+  When the user mentions a quantity or expiry date, pass it through update_pantry
+  as a dict; otherwise a bare name string is fine.
 - Minimise tool calls. Plan the full week in your head using the context above,
   then call update_plan once. Do not call search_recipes or list_recipes
   unless the user specifically asks about saved recipes.
